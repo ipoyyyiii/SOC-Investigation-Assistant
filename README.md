@@ -10,7 +10,7 @@
 
 ```
                     ┌────────────────────────────────────────────────────────┐
-                    │                     DATA SOURCES                        │
+                    │                     DATA SOURCES                       │
                     │  Wazuh agents (Linux+Windows) · Suricata eve.json      │
                     │  Splunk events (BOTS) · Email gateway · Keycloak       │
                     │  AWS CloudTrail                                        │
@@ -21,21 +21,21 @@
 │  01_SOC_Alert_Intake (n8n)                                                    │
 │  Normalize (multi-source router) → Dedup (idempotency key) → Correlate (±15m  │
 │  anchored to alert ts, +24h retro-link) → Call 04 Enrichment → ResponseGate   │
-│  → Call 05 AI → FormatNotification → Discord + Gmail + CaseStore + Report      │
+│  → Call 05 AI → FormatNotification → Discord + Gmail + CaseStore + Report     │
 └──────────┬──────────────────────────────┬─────────────────────────────────────┘
            ▼                              ▼
 ┌─────────────────────────┐   ┌──────────────────────────────────────────────┐
 │ 04_SOC_Enrichment       │   │ 05_SOC_AIAnalysis                            │
-│ TI cache-first: VT      │   │ Summary + observed evidence + MITRE + next    │
-│ (ip/file/url) ·         │   │ steps. Falls back to FACTS-ONLY if the model  │
-│ AbuseIPDB · URLhaus ·   │   │ is unavailable — never invents evidence.      │
-│ OTX                    │   │ Deterministic risk is NEVER computed by AI.   │
+│ TI cache-first: VT      │   │ Summary + observed evidence + MITRE + next   │
+│ (ip/file/url) ·         │   │ steps. Falls back to FACTS-ONLY if the model │
+│ AbuseIPDB · URLhaus ·   │   │ is unavailable — never invents evidence.     │
+│ OTX                     │   │ Deterministic risk is NEVER computed by AI.  │
 └─────────────────────────┘   └──────────────────────────────────────────────┘
            │
            ▼
 ┌───────────────────────────────────────────────────────────────────────────────┐
-│ Postgres (soc): soc_events · incidents · ti_cache · incident_iocs ·            │
-│ analyst_decisions · analyst_tokens · ip_asn_cache · scanner_asn · failed_jobs│
+│ Postgres (soc): soc_events · incidents · ti_cache · incident_iocs ·           │
+│ analyst_decisions · analyst_tokens · ip_asn_cache · scanner_asn · failed_jobs │
 └───────────────────────────────────────────────────────────────────────────────┘
            │                              │
            ▼                              ▼
