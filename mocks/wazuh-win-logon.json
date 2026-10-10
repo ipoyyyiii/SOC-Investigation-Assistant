@@ -1,0 +1,23 @@
+{
+  "source": "wazuh",
+  "raw": {
+    "timestamp": "2026-10-07T10:00:00.000Z",
+    "rule": {
+      "id": "60122",
+      "level": 10,
+      "description": "Windows logon failure.",
+      "groups": ["windows", "windows_security", "authentication_failed"]
+    },
+    "agent": { "id": "010", "name": "win-dc01" },
+    "data": {
+      "event_id": "4625",
+      "TargetUserName": "Administrator",
+      "WorkstationName": "WIN-WORK",
+      "IpAddress": "40.40.40.40",
+      "LogonType": "3",
+      "action": "failed_login"
+    },
+    "location": "EventChannel",
+    "id": "wazuh-winlogon-mock-0001"
+  }
+}

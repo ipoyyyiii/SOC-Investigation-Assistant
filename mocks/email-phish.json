@@ -1,0 +1,16 @@
+{
+  "source": "email",
+  "raw": {
+    "from": "it-support@micorsoft-supportdesk.com",
+    "reply_to": "it-support@evil-relay.ru",
+    "subject": "Password expiry notice - immediate action required",
+    "sender_ip": "45.148.10.88",
+    "recipient": "jdoe@corp.local",
+    "message_id": "<20261006.itx@micorsoft-supportdesk.com>",
+    "auth": { "spf": "fail", "dkim": "none", "dmarc": "fail" },
+    "urls": ["http://login-corp-verify.ru/reset?u=jdoe"],
+    "attachments": [{ "name": "Invoice.doc", "sha256": "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f" }],
+    "received": ["from mail.evil-relay.ru by mx.corp.local"],
+    "timestamp": "2026-10-06T20:30:00.000Z"
+  }
+}

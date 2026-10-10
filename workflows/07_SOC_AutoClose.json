@@ -1,0 +1,84 @@
+{
+  "name": "07_SOC_AutoClose",
+  "nodes": [
+    {
+      "id": "autoc-1b",
+      "name": "AutoCloseWebhook",
+      "type": "n8n-nodes-base.webhook",
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "soc-autoclose",
+      "parameters": {
+        "path": "soc-autoclose",
+        "options": {},
+        "httpMethod": "POST"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "autoc-1c",
+      "name": "AuthCheckAC",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// AuthCheckAutoClose \u2014 same X-SOC-Key contract as other endpoints\nconst h = ($input.first().json.headers) || {};\nconst key = h['x-soc-key'] || h['X-SOC-Key'] || '';\nconst EXPECT = 'X-SOC-KEY';\nif (key !== EXPECT) throw new Error('unauthorized');\nreturn [{ json: { ok: 1 } }];"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "autoc-2",
+      "name": "AutoClose",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "query": "WITH cand AS (\n  SELECT i.incident_id, a.asn, a.org\n  FROM incidents i\n  JOIN ip_asn_cache c ON (c.first_ip <= i.src_ip::inet AND c.last_ip >= i.src_ip::inet)\n  JOIN scanner_asn a ON a.asn = c.asn\n  WHERE i.status = 'OPEN' AND i.src_ip <> '' AND i.risk_score < 40\n    AND EXISTS (SELECT 1 FROM soc_events e WHERE e.incident_id = i.incident_id AND e.outcome = 'failed_login')\n),\nclosed AS (\n  UPDATE incidents SET status = 'CLOSED_FP',\n    analyst_note = ('auto-close (scanner ASN ' || c.asn || ' ' || c.org || ')'),\n    updated_at = NOW()\n  FROM cand c WHERE incidents.incident_id = c.incident_id\n  RETURNING incidents.incident_id, c.asn, c.org\n)\nINSERT INTO analyst_decisions (incident_id, verdict, analyst, note)\nSELECT incident_id, 'FP', 'asn-autoclose',\n  ('scanner ASN ' || asn || ' ' || org || ' - deterministic auto-close, risk<40, failed_login-only')\nFROM closed\nRETURNING incident_id;",
+        "options": {},
+        "operation": "executeQuery"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "IUtC5ZIhrfQ9qUPf",
+          "name": "Postgres account"
+        }
+      },
+      "typeVersion": 2.5
+    }
+  ],
+  "connections": {
+    "AuthCheckAC": {
+      "main": [
+        [
+          {
+            "node": "AutoClose",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AutoCloseWebhook": {
+      "main": [
+        [
+          {
+            "node": "AuthCheckAC",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "pinData": {}
+}

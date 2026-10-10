@@ -1,0 +1,333 @@
+{
+  "name": "03_SOC_Report",
+  "nodes": [
+    {
+      "id": "e654d34d-ffd7-484e-b04e-e05456d68cdf",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "position": [
+        96,
+        304
+      ],
+      "webhookId": "c0ffee11-2222-4333-8444-555555555555",
+      "parameters": {
+        "path": "soc-report",
+        "options": {},
+        "responseMode": "responseNode"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "0d4a98bb-187b-4176-9af9-c7c305c4d1ea",
+      "name": "QIncident",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        720,
+        432
+      ],
+      "parameters": {
+        "query": "SELECT * FROM incidents WHERE incident_id = '{{ $('AuthToken').first().json.incident_id }}';",
+        "options": {},
+        "operation": "executeQuery"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "IUtC5ZIhrfQ9qUPf",
+          "name": "Postgres account"
+        }
+      },
+      "typeVersion": 2.7,
+      "alwaysOutputData": true
+    },
+    {
+      "id": "1a5976bc-c44d-4864-88d5-8e25fbc0e7e9",
+      "name": "QEvents",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        896,
+        432
+      ],
+      "parameters": {
+        "query": "SELECT incident_id, ts, src_ip, dst_ip, host, username, rule_id, outcome, raw::jsonb AS raw FROM soc_events WHERE incident_id = '{{ $('QIncident').first().json.incident_id }}' OR (ts BETWEEN (SELECT created_at FROM incidents WHERE incident_id = '{{ $('QIncident').first().json.incident_id }}') - INTERVAL '15 minutes' AND (SELECT created_at FROM incidents WHERE incident_id = '{{ $('QIncident').first().json.incident_id }}') + INTERVAL '15 minutes' AND (src_ip = '{{ $('QIncident').first().json.src_ip }}' OR host = '{{ $('QIncident').first().json.host }}')) ORDER BY ts ASC LIMIT 100;",
+        "options": {},
+        "operation": "executeQuery"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "IUtC5ZIhrfQ9qUPf",
+          "name": "Postgres account"
+        }
+      },
+      "typeVersion": 2.7,
+      "alwaysOutputData": true
+    },
+    {
+      "id": "151a09d7-e355-4ae5-8539-26c03f86550c",
+      "name": "QIOCs",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        1072,
+        432
+      ],
+      "parameters": {
+        "query": "SELECT ioc_type, value FROM incident_iocs WHERE incident_id = '{{ $('QIncident').first().json.incident_id }}';",
+        "options": {},
+        "operation": "executeQuery"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "IUtC5ZIhrfQ9qUPf",
+          "name": "Postgres account"
+        }
+      },
+      "typeVersion": 2.7,
+      "alwaysOutputData": true
+    },
+    {
+      "id": "e3086287-58b9-4b8b-97fb-10778cea0fd",
+      "name": "QActions",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        1248,
+        432
+      ],
+      "parameters": {
+        "query": "SELECT action, target, reason, status, created_at FROM incident_actions WHERE incident_id = '{{ $('QIncident').first().json.incident_id }}' ORDER BY id;",
+        "options": {},
+        "operation": "executeQuery"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "IUtC5ZIhrfQ9qUPf",
+          "name": "Postgres account"
+        }
+      },
+      "typeVersion": 2.7,
+      "alwaysOutputData": true
+    },
+    {
+      "id": "986cfb64-13ca-482a-98e7-0ed7e27aed86",
+      "name": "RenderReport",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        1408,
+        432
+      ],
+      "parameters": {
+        "jsCode": "// RenderReport \u2014 full HTML (bagian 20)\nconst inc = (() => { try { return $('QIncident').first().json; } catch (e) { return null; } })();\nif (!inc || !inc.incident_id) return [{ json: { html: '<h1>Incident not found</h1>', notfound: true } }];\nconst evts = $('QEvents').all().map(i => i.json);\nconst iocs = (() => { try { return $('QIOCs').all().map(i => i.json); } catch (e) { return []; } })();\nconst acts = (() => { try { return $('QActions').first().json; } catch (e) { return {}; } })();\nconst esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;');\nconst erow = evts.map(e => '<tr><td>' + esc(e.ts) + '</td><td>' + esc(e.src_ip) + '</td><td>' + esc(e.username) + '</td><td>' + esc(e.rule_id) + '</td><td>' + esc(e.outcome) + '</td></tr>').join('');\nconst irow = iocs.map(o => '<tr><td>' + esc(o.ioc_type) + '</td><td>' + esc(o.value) + '</td></tr>').join('');\n// deterministic process chain (parent -> child) from captured observables\nconst obs = (e) => { try { return (e.raw || {}).observables || {}; } catch (x) { return {}; } };\nconst procs = evts.filter(e => { const o = obs(e); return o.parent_image || o.command; });\nconst prow = procs.map(e => { const o = obs(e); return '<tr><td>' + esc(e.ts) + '</td><td>' + esc(o.parent_image || '-') + '</td><td>' + esc(o.command || o.url || '-') + '</td><td>' + esc((o.hash || '').slice(0, 16) + ((o.hash || '').length > 16 ? '...' : '')) + '</td></tr>'; }).join('');\nconst ptree = procs.length ? ('<h2>Process chain (deterministic)</h2><table border=1><tr><th>ts</th><th>parent_image</th><th>command / url</th><th>hash</th></tr>' + prow + '</table>') : '';\nconst html = '<html><head><title>' + esc(inc.incident_id) + '</title></head><body style=\"font-family:monospace\">'\n + '<h1>SOC Investigation Report ' + esc(inc.incident_id) + '</h1>'\n + '<p>Status: <b>' + esc(inc.status) + '</b> | Risk: see evidence | Source: ' + esc(inc.source) + ' | Created: ' + esc(inc.created_at) + '</p>'\n + '<p>Note: ' + esc(inc.analyst_note || '-') + '</p>'\n + '<h2>AI Summary</h2><pre>' + esc(inc.ai_summary || '-') + '</pre>'\n + '<h2>Events (' + evts.length + ')</h2><table border=1><tr><th>ts</th><th>src</th><th>user</th><th>rule</th><th>outcome</th></tr>' + erow + '</table>'\n + '<h2>IOCs</h2><table border=1><tr><th>type</th><th>value</th></tr>' + irow + '</table>'\n + ptree + '<h2>Decision</h2><pre>' + esc(JSON.stringify(acts)) + '</pre>'\n + '</body></html>';\nreturn [{ json: { html } }];"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "93339a63-c4c6-4580-a312-bd9118ca26f1",
+      "name": "RespondReport",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "position": [
+        1584,
+        432
+      ],
+      "parameters": {
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html"
+              }
+            ]
+          }
+        },
+        "respondWith": "text",
+        "responseBody": "={{ $json.html }}"
+      },
+      "typeVersion": 1.5
+    },
+    {
+      "id": "d891e425-ce7d-4960-95ea-51673cc47fa5",
+      "name": "AuthToken",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        240,
+        304
+      ],
+      "parameters": {
+        "jsCode": "const q = ($input.first().json.query || {});\nconst incident_id = String(q.incident_id || '').replace(/'/g, \"''\");\nconst key = String(q.key || '').replace(/'/g, \"''\");\nreturn [{ json: { incident_id, key } }];\n"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "827e2df9-debd-4285-9a48-ecf12e16733d",
+      "name": "QAuth",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        384,
+        304
+      ],
+      "parameters": {
+        "query": "SELECT 'ok' AS auth FROM app_config WHERE key='report_token' AND value = '{{ $json.key }}';",
+        "options": {},
+        "operation": "executeQuery"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "IUtC5ZIhrfQ9qUPf",
+          "name": "Postgres account"
+        }
+      },
+      "typeVersion": 2.7,
+      "alwaysOutputData": true
+    },
+    {
+      "id": "cf583075-c1ee-4684-961f-6d0d80ac61ff",
+      "name": "IF_Auth",
+      "type": "n8n-nodes-base.if",
+      "position": [
+        544,
+        304
+      ],
+      "parameters": {
+        "conditions": {
+          "number": [],
+          "string": [
+            {
+              "value1": "={{ $json.auth }}",
+              "operation": "isEmpty"
+            }
+          ],
+          "boolean": []
+        }
+      },
+      "typeVersion": 1
+    },
+    {
+      "id": "7effcf37-2410-4d61-b5e7-05ecdb7cb1e4",
+      "name": "Respond403",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "position": [
+        736,
+        192
+      ],
+      "parameters": {
+        "options": {
+          "responseCode": 403
+        },
+        "respondWith": "text",
+        "responseBody": "Forbidden"
+      },
+      "typeVersion": 1.5
+    }
+  ],
+  "connections": {
+    "QIOCs": {
+      "main": [
+        [
+          {
+            "node": "QActions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "QEvents": {
+      "main": [
+        [
+          {
+            "node": "QIOCs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "AuthToken",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "QActions": {
+      "main": [
+        [
+          {
+            "node": "RenderReport",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "QIncident": {
+      "main": [
+        [
+          {
+            "node": "QEvents",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RenderReport": {
+      "main": [
+        [
+          {
+            "node": "RespondReport",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AuthToken": {
+      "main": [
+        [
+          {
+            "node": "QAuth",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "QAuth": {
+      "main": [
+        [
+          {
+            "node": "IF_Auth",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF_Auth": {
+      "main": [
+        [
+          {
+            "node": "Respond403",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "QIncident",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "pinData": {}
+}

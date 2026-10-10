@@ -1,0 +1,56 @@
+{
+  "name": "06_SOC_DLQ",
+  "nodes": [
+    {
+      "id": "66dca9ee-a9bf-4bae-a06b-93e368363ce6",
+      "name": "ErrorTrigger",
+      "parameters": {},
+      "position": [
+        240,
+        300
+      ],
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1
+    },
+    {
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "IUtC5ZIhrfQ9qUPf",
+          "name": "Postgres account"
+        }
+      },
+      "id": "566b87d0-96b6-4986-ba13-9eb5984e0a6c",
+      "name": "LogFailedJob",
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {},
+        "query": "INSERT INTO failed_jobs (execution_id, workflow_name, node_name, error_msg) VALUES (NULLIF('={{ (($json.execution || {}).id || \"\") }}', '')::int, '={{ ((($json.workflow || {}).name || \"unknown\")).toString().replace(/'/g, \"''\") }}', '={{ (((($json.execution || {}).lastNodeExecuted) || \"unknown\")).toString().replace(/'/g, \"''\") }}', '={{ JSON.stringify((($json.execution || {}).error || $json.error || {\"message\": \"unknown error\"})).replace(/'/g, \"''\") }}');"
+      },
+      "position": [
+        460,
+        300
+      ],
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7
+    }
+  ],
+  "connections": {
+    "ErrorTrigger": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "LogFailedJob",
+            "type": "main"
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "pinData": {}
+}

@@ -1,0 +1,209 @@
+{
+  "name": "02_SOC_Decision",
+  "nodes": [
+    {
+      "id": "0a9e52a3-f798-4a6b-84cc-cb695d72b245",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "position": [
+        -192,
+        0
+      ],
+      "webhookId": "a11e7da7-4955-4791-974e-9b8bdd76b368",
+      "parameters": {
+        "path": "soc-decision",
+        "options": {},
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "authentication": "headerAuth"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "gindPKW600gfbuhl",
+          "name": "SOC Webhook Key"
+        }
+      },
+      "typeVersion": 2.1
+    },
+    {
+      "id": "ea366319-86f0-47a9-a639-b3ceddd177fe",
+      "name": "Validate",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const b = ($('Webhook').first().json.body) || ($('Webhook').first().json);\nconst _ts = Number((($('Webhook').first().json.headers) || {})['x-analyst-ts'] || 0);\nif (!(_ts > 0) || Math.abs(Date.now() / 1000 - _ts) > 300) throw new Error('stale decision (possible replay)');\nconst v = String(b.verdict || '').toUpperCase();\nif (!b.incident_id) throw new Error('incident_id required');\nif (!['TP','FP','ESCALATE'].includes(v)) throw new Error('verdict must be TP|FP|ESCALATE, got: ' + b.verdict);\nconst _who = (() => { try { return $('QAuthAnalyst').first().json.analyst; } catch (e) { return null; } })();\nif (!_who) throw new Error('analyst required');\nif (!b.analyst || String(b.analyst).trim() === '') throw new Error('analyst required');\nreturn [{ json: { incident_id: String(b.incident_id).replace(/'/g, \"''\"), verdict: v, analyst: _who, note: String(b.note || '').replace(/'/g, \"''\") } }];\n"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "1a73dd85-3a32-4dd4-8c01-d35cd7620935",
+      "name": "Decide",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        160,
+        0
+      ],
+      "parameters": {
+        "query": "UPDATE incidents SET status = '{{ $json.verdict }}', analyst_note = '{{ $json.note }}', updated_at = NOW() WHERE incident_id = '{{ $json.incident_id }}'; INSERT INTO analyst_decisions(incident_id, verdict, analyst, note) VALUES ('{{ $json.incident_id }}', '{{ $json.verdict }}', '{{ $json.analyst }}', '{{ $json.note }}');",
+        "options": {},
+        "operation": "executeQuery"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "IUtC5ZIhrfQ9qUPf",
+          "name": "Postgres account"
+        }
+      },
+      "typeVersion": 2.7
+    },
+    {
+      "id": "db7b0d32-b2b6-4454-9afd-7e49040007c4",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "position": [
+        320,
+        0
+      ],
+      "parameters": {
+        "options": {},
+        "respondWith": "text",
+        "responseBody": "={{ 'OK ' + $('Validate').first().json.incident_id + ' -> ' + $('Validate').first().json.verdict }}"
+      },
+      "typeVersion": 1.5
+    },
+    {
+      "id": "qa-fb3be753",
+      "name": "QAuthAnalyst",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        464,
+        0
+      ],
+      "parameters": {
+        "query": "SELECT analyst FROM analyst_tokens WHERE token = '{{ $json.headers[\"x-analyst-token\"] }}' AND active = true;",
+        "options": {},
+        "operation": "executeQuery"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "IUtC5ZIhrfQ9qUPf",
+          "name": "Postgres account"
+        }
+      },
+      "typeVersion": 2.7,
+      "alwaysOutputData": true
+    },
+    {
+      "id": "ifa-09f7576b",
+      "name": "IF_Authed",
+      "type": "n8n-nodes-base.if",
+      "position": [
+        688,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "number": [],
+          "string": [
+            {
+              "value1": "={{ $json.analyst }}",
+              "operation": "isEmpty"
+            }
+          ],
+          "boolean": []
+        },
+        "combineOperation": "all"
+      },
+      "typeVersion": 1
+    },
+    {
+      "id": "r403-85bee065",
+      "name": "Respond403",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "position": [
+        912,
+        160
+      ],
+      "parameters": {
+        "options": {
+          "responseCode": 403
+        },
+        "respondWith": "text",
+        "responseBody": "Forbidden: bad analyst token"
+      },
+      "typeVersion": 1.5
+    }
+  ],
+  "connections": {
+    "Decide": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "QAuthAnalyst",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate": {
+      "main": [
+        [
+          {
+            "node": "Decide",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF_Authed": {
+      "main": [
+        [
+          {
+            "node": "Respond403",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Validate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "QAuthAnalyst": {
+      "main": [
+        [
+          {
+            "node": "IF_Authed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "pinData": {}
+}

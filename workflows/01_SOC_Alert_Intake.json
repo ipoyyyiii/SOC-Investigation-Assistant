@@ -1,0 +1,570 @@
+{
+  "name": "01_SOC_Alert_Intake",
+  "nodes": [
+    {
+      "id": "c17b953a-306e-4744-b50d-530a992fd77a",
+      "name": "When clicking \u2018Test workflow\u2019",
+      "type": "n8n-nodes-base.manualTrigger",
+      "position": [
+        -752,
+        -288
+      ],
+      "parameters": {},
+      "typeVersion": 1
+    },
+    {
+      "id": "bb073c71-a95b-47c9-a9ab-d85659d00b6c",
+      "name": "MockWazuhAlert",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        -576,
+        -288
+      ],
+      "parameters": {
+        "jsCode": "// MockWazuhAlert \u2014 Phase 1: Fake Wazuh JSON (copy of mocks/wazuh-ssh-bruteforce.json)\nreturn [{\n  json: {\n    timestamp: \"2026-10-05T03:14:22.000Z\",\n    rule: {\n      id: \"5712\",\n      level: 10,\n      description: \"SSHD brute force attack.\",\n      groups: [\"syslog\", \"sshd\", \"authentication_failed\"]\n    },\n    agent: { id: \"001\", name: \"linux-server\" },\n    manager: { name: \"wazuh-manager\" },\n    data: {\n      srcip: \"185.220.101.5\",\n      dstip: \"10.0.0.15\",\n      dstuser: \"root\",\n      srcport: \"52341\",\n      dstport: \"22\",\n      protocol: \"tcp\",\n      action: \"failed_login\"\n    },\n    location: \"/var/log/auth.log\",\n    decoder: { name: \"sshd\" },\n    id: \"wazuh-alert-mock-0001\"\n  }\n}];"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "ce2c4ac3-8ec8-4549-83d9-6e04b7778621",
+      "name": "NormalizeAlert",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        -368,
+        -160
+      ],
+      "parameters": {
+        "jsCode": "// obfScore \u2014 deterministic PowerShell obfuscation score (no AI).\n// Allowlist: approved admin script paths downgrade the score (lab constant; prod: signed-script allowlist).\nfunction obfScore(cmd) {\n  const s = String(cmd || '').toLowerCase();\n  if (!s) return { score: 0, reasons: [] };\n  const ALLOW = ['c:\\\\scripts\\\\backup.ps1', 'c:\\\\scripts\\\\patch.ps1'];\n  const checks = [\n    [/-enc|-encodedcommand|frombase64string/, 'base64/encoded payload'],\n    [/iex|invoke-expression/, 'invoke-expression'],\n    [/downloadstring|downloadfile|downloaddata|net\\\\.webclient|start-bitstransfer/, 'download cradle'],\n    [/-nop|-noni|-noprofile|-w(indowstyle)?\\\\s+hidden/, 'hidden / non-interactive'],\n    [/amsiscanbuffer|amsiutils|amsi bypass/, 'AMSI bypass attempt'],\n    [/\\^+[a-z0-9]|`%|%\\^/, 'caret/percent obfuscation'],\n    [/invoke-|new-object\\\\s+-com/, 'COM/automation execution'],\n  ];\n  let reasons = checks.filter(function (c) { return c[0].test(s); }).map(function (c) { return c[1]; });\n  if (/[a-z0-9+\\\\/]{100,}={0,2}/.test(s)) reasons.push('long base64 blob');\n  let allowlisted = ALLOW.filter(function (a) { return s.indexOf(a.toLowerCase()) !== -1; });\n  if (allowlisted.length) return { score: 0, reasons: ['allowlisted admin script: ' + allowlisted[0]] };\n  return { score: Math.min(10, reasons.length), reasons: reasons };\n}\n\n// NormalizeAlert \u2014 MULTI-SOURCE router . envelope: {source, raw}.\n// sources: wazuh | splunk | elastic | sentinel. Output: unified schema \u00a75 + source.\nconst _in = $input.first().json;\nconst input = _in.body || _in; // unwrap n8n webhook {body,headers}\nconst source = input.source || 'wazuh';\nlet raw = input.raw || input;\nconst now = new Date();\nconst ymd = now.toISOString().slice(0, 10).replace(/-/g, '');\nconst incident_id = 'INC-' + ymd + '-' + String(Math.floor(Math.random()*9000)+1000);\nfunction idem(extra) { return [extra.source || source || '', extra.rule_id || '', extra.timestamp || '', extra.src_ip || '', extra.dst_ip || '', extra.dst_user || '', extra.outcome || ''].join('|'); }\nfunction base(extra) {\n  const _b = Object.assign({ incident_id, timestamp: now.toISOString(), source }, extra);\n  _b.idem_key = idem(_b);\n  // raw_sql: SQL-escaped copy of THIS record (computed in real JS, never via template .replace)\n  _b.raw_b64 = Buffer.from(JSON.stringify(_b)).toString('base64');\n  return _b;\n}\nif (source === 'cloudtrail') {\n  // AWS CloudTrail management events\n  const r = raw || {};\n  const evname = String(r.event_name || '');\n  const denied = !!r.error_code;\n  const sensitive = /CreateAccessKey|CreateUser|AttachUserPolicy|PutUserPolicy|AttachRolePolicy|CreateLoginProfile|UpdateLoginProfile| StopLogging|DeleteTrail|RunInstances|AuthorizeSecurityGroupIngress/.test(evname + ' ');\n  const evt = {\n    timestamp: r.event_time || now.toISOString(),\n    rule_id: 'cloudtrail-' + (evname || 'event').toLowerCase(),\n    rule_level: sensitive ? 12 : (denied ? 10 : 7),\n    rule_description: 'AWS CloudTrail ' + evname + ' by ' + (r.username || '?') + ' from ' + (r.source_ip || '?') + (denied ? (' (DENIED: ' + r.error_code + ')') : ''),\n    agent_id: 'aws-cloudtrail',\n    agent_name: 'aws-cloudtrail',\n    attack_type: 'cloud-identity',\n    observables: {\n      command: '', parent_image: '', file_path: '', hash: '', dst_port: '',\n      user: r.username || '', user_agent: r.user_agent || '', mfa: r.mfa || '', access_key: r.access_key_id || '',\n      event_name: evname, read_only: r.read_only || '', error_code: r.error_code || ''\n    }\n  };\n  evt.src_ip = r.source_ip || '';\n  evt.dst_ip = '';\n  evt.dst_user = r.username || '';\n  evt.src_port = '';\n  evt.outcome = denied ? 'access_denied' : 'api_call';\n  return [{ json: base(evt) }];\n}\nif (source === 'keycloak') {\n  // Identity events from Keycloak lab (impossible-travel / MFA anomaly detection)\n  const r = raw || {};\n  const it = r.impossible_travel || null;\n  const evt = {\n    timestamp: r.timestamp || now.toISOString(),\n    rule_id: it && it.flagged ? 'keycloak-impossible-travel' : ('keycloak-' + String(r.event || 'login').toLowerCase()),\n    rule_level: it && it.flagged ? 12 : 5,\n    rule_description: it && it.flagged ? ('Impossible travel: ' + r.user + ' ' + it.from_cc + '->' + it.to_cc + ' ' + Math.round(it.kmh) + ' km/h') : ('Keycloak identity event: ' + (r.event || 'login')),\n    agent_id: 'keycloak',\n    agent_name: 'keycloak-idp',\n    attack_type: 'identity',\n    observables: {\n      command: '', parent_image: '', file_path: '', hash: '', dst_port: '',\n      user: r.user || '', geo: r.geo || null,\n      impossible_travel: it, mfa: r.mfa || null\n    }\n  };\n  evt.src_ip = r.ip || '';\n  evt.dst_ip = '';\n  evt.dst_user = r.user || '';\n  evt.src_port = '';\n  evt.outcome = r.event === 'LOGIN_ERROR' ? 'login_failed' : 'login_success';\n  return [{ json: base(Object.assign(evt, { evidence: it && it.flagged ? { impossible_travel: it } : {} })) }];\n}\nif (source === 'wazuh') {\n  let r = raw;\n  if (!r.rule) r = raw.raw || raw.body || r;\n  if (!r.rule && raw.body) r = raw.body.raw || raw.body;\n  if (!r.rule || !r.agent) throw new Error('wazuh payload invalid');\n  raw = r;\n  const d = raw.data || {};\n  const groups = (((raw.rule.groups || []).join(' ')) + ' ' + (raw.rule.description || '')).toLowerCase();\n  const isPersist = /syscheck/.test(groups) || !!((raw.syscheck || {}).path);\n  const isWinLogon = /windows_security/.test(groups) || (/logon/i.test(raw.rule.description || '') && (d.event_id === '4624' || d.event_id === '4625'));\n  const isPS = !isWinLogon && /powershell|sysmon|windows/.test(groups);\n  const hash = d.sha256 || d.sha1 || d.md5 || '';\n  const isFile = !!hash || /malware|yara|clamav/.test(groups);\n  const isWeb = /web|webshell|upload|cgi|injection|exploit|lfi|rfi|phish/.test(groups) || /webshell|shell|upload|inject|cgi|phish|scan/i.test(raw.rule.description || '');\nconst attack_type = isPersist ? 'persistence' : (isWinLogon ? 'win-logon' : (isWeb ? 'web' : (isPS ? 'powershell' : (isFile ? 'file' : 'ssh-auth'))));\n  const evt = {\n    timestamp: raw.timestamp || now.toISOString(),\n    rule_id: String(raw.rule.id || '5712'),\n    rule_level: Number(raw.rule.level || 10),\n    rule_description: raw.rule.description || 'SSHD brute force attack.',\n    agent_id: (raw.agent && raw.agent.id) || '001',\n    agent_name: (raw.agent && raw.agent.name) || 'linux-server',\n    attack_type: attack_type,\n    observables: {\n      command: d.command || d.script_block || '',\n      parent_image: d.parent_image || d.parentImage || '',\n      file_path: d.file || d.file_path || d.path || '',\n      hash: hash,\n      dst_port: d.dstport || ''\n    },\n    raw_alert_ref: raw.id || 'wazuh-alert-mock-0001'\n  };\n  if (attack_type === 'persistence') {\n    const sc = raw.syscheck || {};\n    evt.src_ip = '';\n    evt.dst_ip = '';\n    evt.dst_user = sc.uname_after || '';\n    evt.src_port = '';\n    evt.outcome = 'fim_' + (sc.event || 'modified');\n    evt.observables.file_path = sc.path || '';\n    evt.observables.hash = sc.sha256_after || sc.md5_after || '';\n  } else if (attack_type === 'win-logon') {\n    evt.src_ip = d.IpAddress || d.srcip || '';\n    evt.dst_ip = d.dstip || '';\n    evt.dst_user = d.TargetUserName || d.win_user || d.user || d.dstuser || '';\n    evt.src_port = '';\n    evt.outcome = (d.event_id === '4624' || d.action === 'success_login') ? 'success_login' : 'failed_login';\n    evt.observables.logon_type = d.LogonType || '';\n    evt.observables.workstation = d.WorkstationName || '';\n  } else if (attack_type === 'powershell') {\n    evt.src_ip = d.srcip || d.host_ip || '';\n    evt.dst_ip = d.dstip || '';\n    evt.dst_user = d.win_user || d.user || d.dstuser || '';\n    evt.src_port = '';\n    evt.outcome = d.action || d.status || 'executed';\n    const _ps = d.command || d.script_block || d.CommandLine || '';\n    evt.observables.command = _ps;\n    const _obf = obfScore(_ps);\n    evt.observables.obf_score = _obf.score;\n    evt.observables.obf_reasons = _obf.reasons;\n  } else if (attack_type === 'file') {\n    evt.src_ip = d.srcip || '';\n    evt.dst_ip = d.dstip || '';\n    evt.dst_user = d.win_user || d.user || d.dstuser || '';\n    evt.src_port = '';\n    evt.outcome = d.action || d.status || 'detected';\n  } else if (attack_type === 'web') {\n    evt.src_ip = d.srcip || d.src_ip || raw.src_ip || '';\n    evt.dst_ip = d.dstip || '';\n    evt.dst_user = d.win_user || d.user || '';\n    evt.src_port = '';\n    evt.outcome = d.action || d.status || 'suspicious_request';\n    evt.observables.url = d.url || d.request || '';\n  } else {\n    evt.src_ip = d.srcip || '';\n    evt.dst_ip = d.dstip || '';\n    evt.dst_user = d.dstuser || '';\n    evt.src_port = d.srcport || '';\n    evt.outcome = d.action || 'failed_login';\n  }\n  return [{ json: base(evt) }];\n}\nif (source === 'email') {\n  const r = raw || {};\n  const b64url = (s) => {\n    const b64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';\n    const bytes = unescape(encodeURIComponent(s));\n    let out = '', i = 0;\n    while (i < bytes.length) {\n      const c1 = bytes.charCodeAt(i++), c2 = bytes.charCodeAt(i++), c3 = bytes.charCodeAt(i++);\n      const n = (c1 << 16) | ((isNaN(c2) ? 0 : c2) << 8) | (isNaN(c3) ? 0 : c3);\n      out += b64[(n >> 18) & 63] + b64[(n >> 12) & 63] + (isNaN(c2) ? '' : b64[(n >> 6) & 63]) + (isNaN(c3) ? '' : b64[n & 63]);\n    }\n    return out;\n  };\n  const urls = r.urls || [];\n  const atts = r.attachments || [];\n  return [{ json: base({\n    timestamp: r.timestamp || now.toISOString(),\n    rule_id: 'email-gateway-01',\n    rule_level: 8,\n    rule_description: 'Suspicious email (auth fail / lookalike sender).',\n    agent_id: 'mail-gateway',\n    agent_name: 'mail-gateway',\n    attack_type: 'phishing',\n    src_ip: r.sender_ip || '',\n    dst_ip: '',\n    dst_user: r.recipient || '',\n    src_port: '',\n    outcome: r.clicked ? 'clicked' : 'delivered',\n    observables: {\n      command: '', parent_image: '', file_path: '',\n      hash: (atts[0] && atts[0].sha256) || '',\n      sender: r.from || '', reply_to: r.reply_to || '',\n      subject: r.subject || '', auth: r.auth || {},\n      urls: urls, url_ids: urls.map(b64url),\n      attachments: atts.map(a => a.name || '')\n    },\n    raw_alert_ref: r.message_id || 'email-mock-0001'\n  })}];\n}\nif (source === 'splunk') {\n  const _h = (function(){ try { const mm = String(raw.Hashes || '').match(/SHA256=([0-9a-fA-F]+)/); return mm ? mm[1] : ''; } catch (e) { return ''; } })();\n  const _proc = !!(raw.ParentImage || raw.CommandLine);\n  return [{ json: base({\n    timestamp: raw._time || raw.UtcTime || now.toISOString(),\n    rule_id: String(raw.sid || raw.search_name || 'splunk-event'),\n    rule_level: Number(raw.severity || 10),\n    rule_description: raw.search_name || 'Splunk security event.',\n    agent_id: 'splunk',\n    agent_name: raw.dest || raw.Computer || raw.host || '',\n    attack_type: _proc ? 'process' : undefined,\n    src_ip: raw.src_ip || '',\n    dst_ip: raw.dest_ip || '',\n    dst_user: raw.user || raw.User || '',\n    src_port: raw.src_port || '',\n    outcome: raw.outcome || 'observed',\n    observables: {\n      command: raw.CommandLine || '',\n      parent_image: raw.ParentImage || '',\n      file_path: raw.Image || '',\n      hash: _h,\n      dst_port: ''\n    },\n    raw_alert_ref: raw.sid || 'splunk-mock-0001'\n  })}];\n}\nif (source === 'elastic' || source === 'sentinel') {\n  const r = raw.rule || {};\n  return [{ json: base({\n    timestamp: raw['@timestamp'] || now.toISOString(),\n    rule_id: String(r.id || (source + '-ssh-bf')),\n    rule_level: Number(r.severity || 10),\n    rule_description: r.name || (source + ' SSH brute force.'),\n    agent_id: (raw.agent && raw.agent.id) || source,\n    agent_name: (raw.agent && raw.agent.name) || 'linux-server',\n    src_ip: (raw.source && raw.source.ip) || '185.220.101.5',\n    dst_ip: (raw.destination && raw.destination.ip) || '10.0.0.15',\n    dst_user: (raw.user && raw.user.name) || 'root',\n    src_port: '',\n    raw_alert_ref: r.id || (source + '-mock-0001')\n  })}];\n}\nthrow new Error('unsupported source: ' + source + ' (want wazuh|splunk|elastic|sentinel)');"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "63e37cbd-1e76-4209-a9b6-a755b927fe52",
+      "name": "FormatNotification",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        1216,
+        -288
+      ],
+      "parameters": {
+        "jsCode": "// FormatNotification \u2014 pretty + AI-fail fallback (\u00a724: partial data, bukan mati)\nconst aiResp = $input.first().json;\nlet ctx = {};\ntry { ctx = $('ResponseGate').first().json; } catch (e) {\n  try { ctx = $('AttachReasons').first().json; } catch (e2) {\n    try { ctx = $('NormalizeAlert').first().json; } catch (e3) {}\n  }\n}\nconst norm = ctx;\nconst rel = Array.isArray(ctx.related_events) ? ctx.related_events : [];\n\nlet content = null, aiErr = null;\ntry { content = aiResp.choices[0].message.content; }\ncatch (e) {\n  aiErr = (aiResp && aiResp.error && (aiResp.error.message || JSON.stringify(aiResp.error).slice(0,200)))\n       || 'AI unavailable';\n}\n\nconst arr = (v) => Array.isArray(v) ? v : (v ? [v] : []);\nconst lst = (a) => a.map((x, i) => (i+1) + '. ' + (typeof x === 'string' ? x : JSON.stringify(x))).join('\\n');\nconst head =\n  'SOC INCIDENT ' + (norm.incident_id || '-') + '\\n' +\n  'Rule: ' + (norm.rule_description || '-') + ' (level ' + (norm.rule_level || '-') + ')\\n' +\n  'Host: ' + (norm.agent_name || '-') + ' | User: ' + (norm.dst_user || '-') + '\\n' +\n  'Src IP: ' + (norm.src_ip || '-') + ' -> ' + (norm.dst_ip || '-') + '\\n';\n\nlet text;\nif (content) {\n  let summary = content, obs = [], inf = [], rec = [], mitre = [], conf = null;\n  try {\n    const o = JSON.parse(content);\n    summary = o.summary || o.analysis || content;\n    obs = arr(o.observed_behavior || o.observed || o.observations);\n    inf = arr(o.inferred || o.inferences || o.inference);\n    rec = arr(o.recommended_investigation || o.recommended || o.next_steps || o.recommendations);\n    mitre = arr(o.mitre || o.mitre_techniques || []);\n    conf = (typeof o.confidence === 'number') ? o.confidence : null;\n  } catch (e) {}\n  text = head +\n    '--- SUMMARY ---\\n' + summary + '\\n' +\n    (obs.length ? '--- OBSERVED ---\\n' + lst(obs) + '\\n' : '') +\n    (function(){ try {\n      const ev = ctx.evidence || {};\n      const t = ((ctx.threat_intel && ctx.threat_intel[0]) || null);\n      let s = '--- EVIDENCE (deterministic) ---\\n';\n      s += 'Events: ' + (ev.total_in_window || '?') + ' | IPs: ' + ((ev.distinct_src_ips||[]).join(', ') || '-') + ' | Users: ' + ((ev.distinct_users||[]).join(', ') || '-') + '\\n';\n      const _ti = (ctx.threat_intel || []);\n      _ti.forEach(t => {\n        if (!t || !t.indicator) return;\n        const v = (t.sources||{}).virustotal, a = (t.sources||{}).abuseipdb;\n        const vs = (v === 'UNKNOWN' || !v) ? 'UNKNOWN' : (v.malicious + ' mal / ' + v.suspicious + ' susp');\n        const as = (a === 'UNKNOWN' || !a) ? '' : (a.confidence + '% conf');\n        s += 'TI [' + (t.type || '?') + '] ' + t.indicator.slice(0, 40) + ': VT ' + vs + (as ? (' | AbuseIPDB ' + as) : '') + (t.debug ? (' [' + t.debug + ']') : '') + '\\n';\n      });\n      s += 'Continues: ' + (function(){ try { const p = ctx.parent_link; return p ? p + ' (same attack, earlier fail)' : '-'; } catch(e){ return '?'; } })() + '\\n';\n      s += 'Related TI: ' + (function(){ try {\n        let rt = null; try { rt = $('AttachRelatedTI').first().json.related_ti; } catch(e) {}\n        if (!rt || !rt.length) return '-';\n        return rt.slice(0,3).map(t => t.indicator + '=' + (((t.virustotal||{}).malicious) || 0) + 'mal').join(', ');\n      } catch(e){ return '?'; } })() + '\\n';\n      s += 'Success-after-failures: ' + (ev.auth_success_after_failures ? 'YES \u2014 possible compromise' : 'no') + '\\n';\n      s += 'Retro links (24h, same IP): ' + (function(){ try { const rl = ctx.retro_links || []; return rl.length ? rl.map(x => x.incident_id).join(', ') : 'none'; } catch(e){ return '?'; } })() + '\\n';\n      s += (function(){ try { const ob = $('NormalizeAlert').first().json.observables || {};\n        if (ob.obf_score === undefined || ob.obf_score === null) return '';\n        const rs = (ob.obf_reasons || []);\n        return 'Obfuscation: ' + ob.obf_score + '/10' + (rs.length ? ' (' + rs.join(', ') + ')' : '') + '\\n';\n      } catch(e){ return ''; } })();\n      s += 'Risk: ' + (function(){ try { const g = $('ResponseGate').first().json; return g.risk_score + '/100 ' + g.risk_level; } catch(e){ return '?'; } })() + '\\n';\n      s += (function(){ try { const g = $('ResponseGate').first().json; return g.proposed_action ? ('PROPOSED ACTION (needs analyst approval): ' + g.proposed_action + ' \u2014 NOT executed (BLOCK_ENABLED=false)\\n') : ''; } catch(e){ return ''; } })();\n      return s;\n    } catch(e){ return ''; } })() +\n    (inf.length ? '--- INFERRED ---\\n' + lst(inf) + '\\n' : '') +\n    (mitre.length ? '--- MITRE ---\\n' + mitre.map(x => (typeof x === 'string' ? x : ((x.technique_id || '?') + ' ' + (x.technique_name || '') + ' \u2014 ' + (x.reason || '')))).join('\\n') + '\\n' : '') +\n    ((conf !== null) ? 'AI confidence: ' + conf + '\\n' : '') +\n    (rec.length ? '--- NEXT STEPS ---\\n' + lst(rec) + '\\n' : '');\n} else {\n  const relLines = rel.slice(0,5).map((r,i) =>\n    (i+1) + '. ' + r.incident_id + ' (' + (r.related_because||[]).join(', ') + ')').join('\\n');\n  const _evd = (function(){ try {\n      const ev = ctx.evidence || {};\n      let s = '--- EVIDENCE (deterministic) ---\\n';\n      s += 'Events: ' + (ev.total_in_window || '?') + ' | IPs: ' + ((ev.distinct_src_ips||[]).join(', ') || '-') + ' | Users: ' + ((ev.distinct_users||[]).join(', ') || '-') + '\\n';\n      (ctx.threat_intel || []).forEach(t => {\n        if (!t || !t.indicator) return;\n        if (t.type === 'ipv4' && !/^[0-9]{1,3}(\\.[0-9]{1,3}){3}$/.test(String(t.indicator))) return;\n        const v = (t.sources||{}).virustotal, a = (t.sources||{}).abuseipdb, uh = (t.sources||{}).urlhaus, ox = (t.sources||{}).otx;\n        const vs = (v === 'UNKNOWN' || !v) ? 'UNKNOWN' : (v.malicious + ' mal / ' + v.suspicious + ' susp');\n        const as = (a === 'UNKNOWN' || !a) ? '' : (a.confidence + '% conf');\n        const uhs = (uh && uh !== 'UNKNOWN') ? (' | URLhaus ' + (uh.url_status || 'unknown')) : '';\n        const oxs = (ox && ox !== 'UNKNOWN') ? (' | OTX ' + ((ox.pulses || 0) + ' pulses')) : '';\n        s += 'TI [' + (t.type || '?') + '] ' + String(t.indicator).slice(0, 40) + ': VT ' + vs + (as ? (' | AbuseIPDB ' + as) : '') + uhs + oxs + '\\n';\n      });\n      s += 'Success-after-failures: ' + (ev.auth_success_after_failures ? 'YES - possible compromise' : 'no') + '\\n';\n      s += 'Retro links (24h, same IP): ' + (function(){ try { const rl = ctx.retro_links || []; return rl.length ? rl.map(x => x.incident_id).join(', ') : 'none'; } catch(e){ return '?'; } })() + '\\n';\n      return s;\n    } catch(e){ return ''; } })();\n  text = head +\n    '--- SUMMARY ---\\n' +\n    ((function(){ const s = norm.source || 'wazuh'; const map = { wazuh:'Wazuh rule', splunk:'Splunk rule', email:'Email gateway rule', keycloak:'Keycloak identity event', cloudtrail:'AWS CloudTrail event', suricata:'Suricata alert' }; return map[s] || (s + ' event'); })() + ' ' + (norm.rule_id || '-') + ' (' + (norm.rule_description || '-') + ') from ') +\n    (norm.src_ip || '-') + ' targeting ' + (norm.dst_user || '-') + '@' + (norm.dst_ip || '-') +\n    '. AI analysis unavailable (' + aiErr + '); deterministic evidence only.\\n' +\n    '--- OBSERVED ---\\n' +\n    '1. Rule trigger: ' + (norm.rule_description || '-') + ' level ' + (norm.rule_level || '-') + '\\n' +\n    '2. Related events: ' + rel.length + ' in \u00b115 min\\n' +\n    (function(){ try {\n      const arr = (ctx.threat_intel || []);\n      let n = 3;\n      return arr.filter(t => t && t.indicator && !(t.type === 'ipv4' && !/^[0-9]{1,3}(\\.[0-9]{1,3}){3}$/.test(String(t.indicator)))).map(t => {\n        const v = (t.sources||{}).virustotal, a = (t.sources||{}).abuseipdb, uh2 = (t.sources||{}).urlhaus, ox2 = (t.sources||{}).otx;\n        const vs = (v === 'UNKNOWN' || !v) ? 'UNKNOWN' : (v.malicious + ' mal / ' + v.suspicious + ' susp');\n        const as = (a === 'UNKNOWN' || !a) ? '' : (a.confidence + '% conf');\n        const uhs = (uh2 && uh2 !== 'UNKNOWN') ? (' | URLhaus ' + (uh2.url_status || 'unknown')) : '';\n        const oxs = (ox2 && ox2 !== 'UNKNOWN') ? (' | OTX ' + ((ox2.pulses || 0) + ' pulses')) : '';\n        return (n++) + '. Threat intel [' + (t.type || '?') + '] ' + String(t.indicator).slice(0, 40) + ': VT ' + vs + (as ? (' | AbuseIPDB ' + as) : '') + uhs + oxs;\n      }).join('\\n') + (arr.some(t => t && t.indicator) ? '\\n' : '');\n    } catch(e) { return ''; } })() +\n    (relLines ? relLines + '\\n' : '') +\n    _evd + '--- INFERRED ---\\nSkipped \u2014 AI unavailable, facts only, no inference made.\\n' +\n    '--- NEXT STEPS ---\\n' +\n    (function(){\n      const at = norm.attack_type || 'ssh-auth', ob = norm.observables || {};\n      let steps;\n      if (at === 'phishing') steps = [\n        'Verify sender ' + (ob.sender || '?') + ' vs Reply-To ' + (ob.reply_to || '?') + ' + SPF/DKIM/DMARC: ' + JSON.stringify(ob.auth || {}),\n        'Blast radius: search same subject/sender across mailboxes; check who clicked/opened',\n        'If clicked: isolate workstation, force password reset, check inbox rules + OAuth grants'\n      ];\n      if (at === 'process') steps = [\n        'Isolate ' + (norm.agent_name || 'host') + ' (keep on for memory capture)',\n        'Kill tree: ' + (ob.parent_image || '?') + ' -> review: ' + String(ob.command || '-').slice(0, 140),\n        'Hunt hash + parent across fleet; check persistence + lateral'\n      ];\n      else if (at === 'persistence') steps = [\n        'Verify change authorized (ticket/change record) for ' + (ob.file_path || 'file'),\n        'Inspect content + hashes; reverse if malicious (restore from backup)',\n        'Hunt same file/hash across fleet; check cron/svc persistence mechanism'\n      ];\n      else if (at === 'win-logon') steps = [\n        'Review DC Security log 4625/4624 burst around ' + (norm.timestamp || '-') + ' (lockout risk)',\n        'If success after fails for ' + (norm.dst_user || '?') + ': verify session, check lateral (RDP/SMB), force password reset',\n        'Check source ' + (norm.src_ip || '-') + ' reputation + asset inventory (known scanner?)'\n      ];\n      else if (at === 'powershell') steps = [\n        'Isolate ' + (norm.agent_name || 'host') + ' from network (keep powered on for memory capture)',\n        'Review command: ' + String(ob.command || '-').slice(0, 140),\n        'Check parent ' + (ob.parent_image || '?') + ' + persistence (scheduled tasks, Run keys, Startup)'\n      ];\n      else if (at === 'file') steps = [\n        'Quarantine ' + (ob.file_path || 'sample') + ' \u2014 do NOT open on analyst workstation',\n        'Hunt hash ' + String(ob.hash || '').slice(0, 20) + '... across fleet',\n        'Submit to sandbox if VT verdict inconclusive'\n      ];\n      else if (at === 'cloud-identity') steps = [\n        'Open AWS CloudTrail: pivot on event \"' + (ob.event_name || '?') + '\" and access key ' + String(ob.access_key || '').slice(0, 16),\n        'If access DENIED on a sensitive action (CreateAccessKey/StopLogging): treat creds as STOLEN - rotate immediately + revoke sessions',\n        'Check ConsoleLogin history for ' + (norm.dst_user || '?') + ' from new IP/ASN; verify MFA status; review IAM policy drift',\n        'Correlate with other events from ' + (norm.src_ip || '-') + ' within the same window'\n      ];\n      else if (at === 'identity') steps = [\n        'Verify impossible-travel: compare login geo history for ' + (norm.dst_user || '?'),\n        'Force re-auth + check MFA enrollment; look for new device/session',\n        'Review token issuance for the session around ' + (norm.timestamp || '-')\n      ];\n      else if (at === 'web') steps = [\n        'Pull nginx access.log for URL ' + String(ob.url || '-').slice(0, 120),\n        'Check webroot for dropped files (syscheck FIM) + block source IP per policy',\n        'Review IDS/WAF signature that fired and test payload variants'\n      ];\n      else if (at === 'process') steps = [\n        'Capture process tree: ' + (ob.parent_image || '?') + ' -> ' + String(ob.command || '-').slice(0, 100),\n        'Check hash ' + String(ob.hash || '').slice(0, 16) + '... across fleet; submit to sandbox if unseen',\n        'Isolate ' + (norm.agent_name || 'host') + ' if parent path is non-standard (masquerade pattern)'\n      ];\n      else if (at === 'persistence') steps = [\n        'Inspect changed path ' + (ob.file_path || '?') + '; compare against package manager history',\n        'Hunt same change on sibling hosts (cron/systemd/boot entries)',\n        'Close as FP ONLY after corroboration (as done for the grub/shim unattended-upgrade case)'\n      ];\n      else if (at === 'win-logon') steps = [\n        'Pivot on Security log: 4625 failure burst then 4624 success (breakthrough pattern)',\n        'Check lateral: service installs (7045), RDP sessions (Logon Type 10), scheduled tasks',\n        'Force password reset for ' + (norm.dst_user || '?') + ' if breakthrough confirmed'\n      ];\n      else steps = [\n        'Review auth log on ' + (norm.agent_name || 'host') + ' around ' + (norm.timestamp || '-'),\n        'Correlate other alerts from ' + (norm.src_ip || '-'),\n        'Verify root SSH login policy; consider blocking source IP per policy'\n      ];\n      return steps.map((x, i) => (i+1) + '. ' + x).join('\\n') + '\\n';\n    })()\n}\ntext += (function(){ try {\n  const tl = ctx.timeline || [];\n  if (!tl.length) return '';\n  const lines = tl.slice(-10).map(e => String(e.ts || '').slice(11, 19) + ' ' + (e.outcome || 'unknown') + ' ' + (e.ip || '-') + '/' + (e.user || '-') + (e.marker ? ' <-- ' + e.marker : ''));\n  return '--- TIMELINE ---\\n' + lines.join('\\n') + '\\n';\n} catch (e) { return ''; } })();\ntext += 'Full report: /webhook/soc-report?incident_id=' + (norm.incident_id || '') + '\\n';\ntext += '--- NOTE --- Final determination remains with analyst (TP/FP/ESCALATE).';\nif (text.length > 1900) text = text.slice(0, 1900) + '\\n[truncated]';\nconst _b64 = Buffer.from(String(text)).toString('base64'); return [{ json: { incident_id: norm.incident_id, notification_text: text, notification_b64: _b64, ai_error: aiErr } }];"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "ceb7de7e-862c-48ec-a95c-f3a614ee7407",
+      "name": "Discord",
+      "type": "n8n-nodes-base.discord",
+      "position": [
+        1600,
+        -16
+      ],
+      "webhookId": "c2d73356-6db6-4c20-9624-346101b0d288",
+      "parameters": {
+        "content": "={{ $json.notification_text }}",
+        "options": {},
+        "authentication": "webhook"
+      },
+      "credentials": {
+        "discordWebhookApi": {
+          "id": "GADSsrKCnqziSo3p",
+          "name": "Discord Webhook account"
+        }
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "f6a7b8c9-webhook-soc",
+      "name": "Webhook_SOC_Alert",
+      "type": "n8n-nodes-base.webhook",
+      "position": [
+        -752,
+        -16
+      ],
+      "webhookId": "b9cb89ac-44a5-4478-833a-1341f2c24e15",
+      "parameters": {
+        "path": "soc-alert",
+        "options": {},
+        "httpMethod": "POST",
+        "authentication": "headerAuth"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "gindPKW600gfbuhl",
+          "name": "SOC Webhook Key"
+        }
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "41b5e182-2209-496c-a2a9-a2c8b6efab8a",
+      "name": "StoreEvent",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        160,
+        -288
+      ],
+      "parameters": {
+        "query": "INSERT INTO soc_events (incident_id, ts, source, idem_key, src_ip, dst_ip, host, username, rule_id, rule_level, outcome, raw)\nVALUES ('{{ $('NormalizeAlert').first().json.incident_id }}', TIMESTAMPTZ '{{ $('NormalizeAlert').first().json.timestamp }}', '{{ $('NormalizeAlert').first().json.source }}', '{{ $('NormalizeAlert').first().json.idem_key }}', '{{ $('NormalizeAlert').first().json.src_ip }}', '{{ $('NormalizeAlert').first().json.dst_ip }}', '{{ $('NormalizeAlert').first().json.agent_name }}', '{{ $('NormalizeAlert').first().json.dst_user }}', '{{ $('NormalizeAlert').first().json.rule_id }}', {{ $('NormalizeAlert').first().json.rule_level }}, '{{ $('NormalizeAlert').first().json.outcome }}', convert_from(decode('{{ $('NormalizeAlert').first().json.raw_b64 }}', 'base64'), 'UTF8')::jsonb) ON CONFLICT (idem_key) DO NOTHING;",
+        "options": {},
+        "operation": "executeQuery"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "IUtC5ZIhrfQ9qUPf",
+          "name": "Postgres account"
+        }
+      },
+      "typeVersion": 2.7
+    },
+    {
+      "id": "54a40d66-cf66-4caf-9fd9-39b1eaf88656",
+      "name": "Correlate",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        320,
+        -288
+      ],
+      "parameters": {
+        "query": "SELECT incident_id, ts, source, src_ip, dst_ip, host, username, rule_id, outcome FROM soc_events\nWHERE ts > (TIMESTAMPTZ '{{ $('NormalizeAlert').first().json.timestamp }}' - INTERVAL '24 hours') AND ts <= TIMESTAMPTZ '{{ $('NormalizeAlert').first().json.timestamp }}'\nAND (src_ip = '{{ $('NormalizeAlert').first().json.src_ip }}' OR host = '{{ $('NormalizeAlert').first().json.agent_name }}' OR username = '{{ $('NormalizeAlert').first().json.dst_user }}')\nORDER BY ts DESC LIMIT 50;",
+        "options": {},
+        "operation": "executeQuery"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "IUtC5ZIhrfQ9qUPf",
+          "name": "Postgres account"
+        }
+      },
+      "typeVersion": 2.7,
+      "alwaysOutputData": true
+    },
+    {
+      "id": "ae671783-80da-49af-8338-e0388a778a68",
+      "name": "AttachReasons",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        480,
+        -288
+      ],
+      "parameters": {
+        "jsCode": "// AttachReasons + deterministic evidence counts (bagian 8-9)\nconst norm = $('NormalizeAlert').first().json;\nconst rows = $input.all().map(i => i.json).filter(r => r.incident_id);\nconst inWin = (r) => { try { return Math.abs(new Date(r.ts) - new Date(norm.timestamp)) <= 15*60000; } catch (e) { return true; } };\nconst rel = rows.filter(r => r.incident_id !== norm.incident_id && inWin(r)).map(r => {\n  const why = [];\n  if (r.src_ip === norm.src_ip) why.push('same_source_ip');\n  if (r.host === norm.agent_name) why.push('same_target_host');\n  if (r.username === norm.dst_user) why.push('same_user');\n  try { if (Math.abs(new Date(r.ts) - new Date(norm.timestamp)) <= 5*60000) why.push('within_5_minutes'); } catch(e) {}\n  r.related_because = why; return r;\n}).filter(r => r.related_because.length);\n\n// deterministic counts \u2014 kode yang ngitung, bukan LLM\nconst all = [norm].concat(rel);\nconst uniq = (a) => [...new Set(a.filter(Boolean))];\nconst times = all.map(r => new Date(r.ts || r.timestamp)).filter(d => !isNaN(d));\nconst evidence = {\n  total_in_window: all.length,\n  distinct_src_ips: uniq(all.map(r => r.src_ip)),\n  distinct_users: uniq(all.map(r => r.username || r.dst_user)),\n  window_start: times.length ? new Date(Math.min(...times)).toISOString() : null,\n  window_end: times.length ? new Date(Math.max(...times)).toISOString() : null,\n  auth_success_after_failures: all.some(r => /success/i.test(r.outcome || r.action || ''))\n};\nconst timeline = all.map(r => ({ ts: r.ts || r.timestamp || norm.timestamp, ip: r.src_ip, user: r.username || r.dst_user, outcome: r.outcome || r.action || 'unknown', reasons: r.related_because || [] }))\n  .sort((x, y) => new Date(x.ts) - new Date(y.ts))\n  .map((e, i, arr) => Object.assign(e, { marker: i === 0 ? 'FIRST' : (/success/i.test(e.outcome) ? 'SUCCESS' : (i === arr.length - 1 ? 'LATEST' : '')) }));\nconst _fails = rel.filter(x => /fail/i.test(x.outcome || ''));const _sameIP = _fails.filter(x => x.src_ip === norm.src_ip).sort((p, q) => new Date(p.ts) - new Date(q.ts));const _anyF = _fails.sort((p, q) => new Date(p.ts) - new Date(q.ts));const parent_link = (/success/i.test(norm.outcome || '') ? (((_sameIP[0] || _anyF[0]) || {}).incident_id || null) : null);return [{ json: Object.assign({}, norm, { related_events: rel, parent_link: parent_link,\n  retro_links: rows.filter(r => r.incident_id !== norm.incident_id && !inWin(r) && r.src_ip && r.src_ip === norm.src_ip).slice(-5).map(r => ({ incident_id: r.incident_id, ts: r.ts, related_because: ['retro_same_ip_24h'] })), related_count: rel.length, evidence, timeline }) }];"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "bd438410-dff1-46b8-83d2-b1f3b8a1608f",
+      "name": "DedupCheck",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        -208,
+        -160
+      ],
+      "parameters": {
+        "query": "SELECT incident_id, ts FROM soc_events\nWHERE (src_ip = '{{ $('NormalizeAlert').first().json.src_ip }}'\nAND host = '{{ $('NormalizeAlert').first().json.agent_name }}'\nAND rule_id = '{{ $('NormalizeAlert').first().json.rule_id }}'\nAND ts > (TIMESTAMPTZ '{{ $('NormalizeAlert').first().json.timestamp }}' - INTERVAL '15 minutes') AND ts <= TIMESTAMPTZ '{{ $('NormalizeAlert').first().json.timestamp }}'\n) OR idem_key = '{{ $('NormalizeAlert').first().json.idem_key }}' ORDER BY ts ASC LIMIT 1;",
+        "options": {},
+        "operation": "executeQuery"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "IUtC5ZIhrfQ9qUPf",
+          "name": "Postgres account"
+        }
+      },
+      "typeVersion": 2.7,
+      "alwaysOutputData": true
+    },
+    {
+      "id": "isnew-8c49347a",
+      "name": "IsNew",
+      "type": "n8n-nodes-base.if",
+      "position": [
+        -32,
+        -160
+      ],
+      "parameters": {
+        "conditions": {
+          "number": [],
+          "string": [
+            {
+              "value1": "={{ $json.incident_id }}",
+              "operation": "isEmpty"
+            },
+            {
+              "value1": "={{ $(\"NormalizeAlert\").first().json.outcome }}",
+              "value2": "success",
+              "operation": "regex"
+            }
+          ],
+          "boolean": []
+        },
+        "combineOperation": "any"
+      },
+      "typeVersion": 1
+    },
+    {
+      "id": "storedup-db553b64",
+      "name": "StoreDuplicate",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        144,
+        32
+      ],
+      "parameters": {
+        "query": "INSERT INTO soc_events (incident_id, ts, source, idem_key, src_ip, dst_ip, host, username, rule_id, rule_level, outcome, raw, parent_incident_id)\nVALUES ('{{ $('NormalizeAlert').first().json.incident_id }}', TIMESTAMPTZ '{{ $('NormalizeAlert').first().json.timestamp }}', '{{ $('NormalizeAlert').first().json.source }}', '{{ $('NormalizeAlert').first().json.idem_key }}', '{{ $('NormalizeAlert').first().json.src_ip }}', '{{ $('NormalizeAlert').first().json.dst_ip }}', '{{ $('NormalizeAlert').first().json.agent_name }}', '{{ $('NormalizeAlert').first().json.dst_user }}', '{{ $('NormalizeAlert').first().json.rule_id }}', {{ $('NormalizeAlert').first().json.rule_level }}, '{{ $('NormalizeAlert').first().json.outcome }}', convert_from(decode('{{ $('NormalizeAlert').first().json.raw_b64 }}', 'base64'), 'UTF8')::jsonb, '{{ $('DedupCheck').first().json.incident_id }}') ON CONFLICT (idem_key) DO NOTHING;",
+        "options": {},
+        "operation": "executeQuery"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "IUtC5ZIhrfQ9qUPf",
+          "name": "Postgres account"
+        }
+      },
+      "typeVersion": 2.7
+    },
+    {
+      "id": "55d529fc-4bd7-4362-9bb4-c8ed628981cf",
+      "name": "GmailNotify",
+      "type": "n8n-nodes-base.emailSend",
+      "position": [
+        1600,
+        -176
+      ],
+      "webhookId": "b2f3f5f3-bb42-4a76-99c5-531648992d62",
+      "parameters": {
+        "text": "=={{ $json.notification_text }}",
+        "options": {
+          "appendAttribution": false
+        },
+        "subject": "=={{ 'SOC INCIDENT ' + $json.incident_id }}",
+        "toEmail": "soc-alerts@example.com",
+        "fromEmail": "soc-alerts@example.com",
+        "emailFormat": "text"
+      },
+      "credentials": {
+        "smtp": {
+          "id": "MnkIhAcwF642v2WA",
+          "name": "SMTP account"
+        }
+      },
+      "typeVersion": 2.1
+    },
+    {
+      "id": "ea081eae-1601-493b-94ca-ccb906c104a2",
+      "name": "CaseStore",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        1600,
+        -352
+      ],
+      "parameters": {
+        "query": "INSERT INTO incidents (incident_id, source, rule_id, rule_level, src_ip, host, username, ai_summary, ti_summary, status, risk_score, risk_level, parent_incident_id, severity)\nVALUES ('{{ $('ResponseGate').first().json.incident_id }}', '{{ $('ResponseGate').first().json.source }}', '{{ $('ResponseGate').first().json.rule_id }}', {{ $('ResponseGate').first().json.rule_level }}, '{{ $('ResponseGate').first().json.src_ip }}', '{{ $('ResponseGate').first().json.agent_name }}', '{{ $('ResponseGate').first().json.dst_user }}', convert_from(decode('{{ $('FormatNotification').first().json.notification_b64 }}', 'base64'), 'UTF8'), convert_from(decode('{{ $('ResponseGate').first().json.ti_b64 }}', 'base64'), 'UTF8')::jsonb, 'OPEN', {{ $('ResponseGate').first().json.risk_score }}, '{{ $('ResponseGate').first().json.risk_level }}', '{{ $('ResponseGate').first().json.parent_link }}', CASE WHEN {{ $('ResponseGate').first().json.rule_level }} >= 12 THEN 'CRITICAL' WHEN {{ $('ResponseGate').first().json.rule_level }} >= 10 THEN 'HIGH' WHEN {{ $('ResponseGate').first().json.rule_level }} >= 7 THEN 'MEDIUM' ELSE 'LOW' END)\nON CONFLICT (incident_id) DO NOTHING;\nINSERT INTO incident_iocs (incident_id, ioc_type, value) VALUES ('{{ $('ResponseGate').first().json.incident_id }}', 'ipv4', '{{ $('ResponseGate').first().json.src_ip }}');",
+        "options": {},
+        "operation": "executeQuery"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "IUtC5ZIhrfQ9qUPf",
+          "name": "Postgres account"
+        }
+      },
+      "typeVersion": 2.7
+    },
+    {
+      "id": "cf00d51e-630c-481b-a8aa-efc893bc1725",
+      "name": "Counter",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        304,
+        32
+      ],
+      "parameters": {
+        "query": "UPDATE incidents SET event_count = event_count + 1, updated_at = NOW() WHERE incident_id = '{{ $('DedupCheck').first().json.incident_id }}';",
+        "options": {},
+        "operation": "executeQuery"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "IUtC5ZIhrfQ9qUPf",
+          "name": "Postgres account"
+        }
+      },
+      "typeVersion": 2.7
+    },
+    {
+      "id": "b4e8b148-1bb6-41fa-9bc4-4543a597004a",
+      "name": "ResponseGate",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        832,
+        -288
+      ],
+      "parameters": {
+        "jsCode": "// deterministic risk + response gates (\u00a717+\u00a723). propose only, never executes.\nconst e = $input.first().json;\nconst ti = (e.threat_intel && e.threat_intel[0]) || null;\n// weight v2 (2026-10-09): +15 web-exploit class (DBIR #1 initial vector), +5 public src, +10 obfuscation>=3\nlet risk = 10 + (e.rule_level || 0) * 2;\nconst _at = (function(){ try { return String($('NormalizeAlert').first().json.attack_type || ''); } catch (x) { return ''; } })(); // cross-node ref: immune to merge shape\nif (_at === 'web') risk += 15;\nconst _pub = !/^(10[.]|192[.]168[.]|172[.](1[6-9]|2[0-9]|3[01])[.]|127[.]|$)/.test(e.src_ip || '');\nif (_pub) risk += 5;\nconst _obf = (function(){ try { return Number($('NormalizeAlert').first().json.observables.obf_score) || 0; } catch (x) { return 0; } })();\nif (_obf >= 3) risk += 10;\nconst v = ti && ti.sources.virustotal, a = ti && ti.sources.abuseipdb;\nif (v && v !== 'UNKNOWN') risk += Math.min(30, (v.malicious||0)*3 + (v.suspicious||0));\nif (a && a !== 'UNKNOWN') risk += Math.min(25, Math.round((a.confidence||0)/4));\nconst uh3 = ti && ti.sources.urlhaus; if (uh3 && uh3 !== 'UNKNOWN' && /malware|phish/.test(uh3.url_status || '')) risk += 15;\nconst ox3 = ti && ti.sources.otx; if (ox3 && ox3 !== 'UNKNOWN' && (ox3.pulses || 0) > 0) risk += 10;\nif (e.evidence && e.evidence.auth_success_after_failures) risk += 40;\nif (e.evidence && e.evidence.impossible_travel) risk += 40;\nconst _ct = e.attack_type || '';\nif (_ct === 'cloud-identity') {\n  const _o = e.observables || {};\n  if (/createaccesskey|createuser|attach.*policy|createloginprofile|stoplogging|deletetrail|runinstances/i.test(_o.event_name || '')) risk += 25;\n  if ((_o.error_code || '') !== '') risk += 10;\n  const _pubip = !/^(10\\.|192\\.168\\.|172\\.(1[6-9]|2\\d|3[01])\\.|127\\.)/.test(e.src_ip || '');\n  if (_pubip && (e.src_ip || '') !== '') risk += 5;\n}\n\nrisk = Math.max(0, Math.min(100, risk));\nconst level = risk >= 75 ? 'HIGH' : (risk >= 40 ? 'MEDIUM' : 'LOW');\nconst ALLOW = ['127.0.0.1'];\nconst isPublic = _pub; // reuse v2 public test\nconst gates = {\n  ti_bad: !!((v && v !== 'UNKNOWN' && v.malicious > 0) || (a && a !== 'UNKNOWN' && a.confidence >= 70)),\n  success: !!(e.evidence && e.evidence.auth_success_after_failures),\n  public_ip: isPublic, allowlisted: ALLOW.includes(e.src_ip)\n};\nconst candidate = (risk >= 60 && !gates.allowlisted && (gates.ti_bad || gates.success)) ? ('block ' + e.src_ip) : null;\nconst _tib = Buffer.from(JSON.stringify(ti || [])).toString('base64'); return [{ json: Object.assign({}, e, { risk_score: risk, risk_level: level, gates, proposed_action: candidate, block_enabled: false, ti_b64: _tib }) }];"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "ba7e7796-5f4d-4419-90cd-30d523a4bdbb",
+      "name": "ResponseLog",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        1600,
+        -512
+      ],
+      "parameters": {
+        "query": "INSERT INTO incident_actions (incident_id, action, target, reason, status)\nSELECT '{{ $('ResponseGate').first().json.incident_id }}', 'block', '{{ $('ResponseGate').first().json.src_ip }}', 'risk={{ $('ResponseGate').first().json.risk_score }} gates={{ JSON.stringify($('ResponseGate').first().json.gates) }}', 'PROPOSED'\nWHERE '{{ $('ResponseGate').first().json.proposed_action }}' <> '';",
+        "options": {},
+        "operation": "executeQuery"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "IUtC5ZIhrfQ9qUPf",
+          "name": "Postgres account"
+        }
+      },
+      "typeVersion": 2.7
+    },
+    {
+      "id": "14d993b1-6594-435a-8b1c-943c9ae5170e",
+      "name": "AuthCheck",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        -560,
+        -16
+      ],
+      "parameters": {
+        "jsCode": "// AuthCheck \u2014 replay protection for intake webhook\n// Webhook output wraps body; manual path has no headers.\nconst j = $input.first().json;\nif (!j.headers) {\n  return [{ json: { ...j, auth_note: 'manual-bypass' } }];\n}\nconst h = j.headers;\nconst tsRaw = h['x-soc-ts'] || h['X-SOC-TS'] || h['X-Soc-Ts'];\nif (tsRaw === undefined || tsRaw === null || String(tsRaw).trim() === '') {\n  throw new Error('stale webhook (possible replay)');\n}\nconst ts = Number(String(tsRaw).trim());\nif (!Number.isFinite(ts)) {\n  throw new Error('stale webhook (possible replay)');\n}\nconst now = Math.floor(Date.now() / 1000);\nif (Math.abs(now - ts) > 300) {\n  throw new Error('stale webhook (possible replay)');\n}\nreturn [{ json: { ...j, auth_note: 'ok' } }];\n"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "9363d0ef-2c9a-40ea-89cb-6268dd8c3ba4",
+      "name": "CallEnrichment",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "position": [
+        656,
+        -288
+      ],
+      "parameters": {
+        "options": {},
+        "workflowId": "1bae9ce3-367c-4ade-8009-db2c14527d52"
+      },
+      "typeVersion": 1
+    },
+    {
+      "id": "fc04941a-492a-4c54-b77d-c2d15f9aae58",
+      "name": "CallAIAnalysis",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "position": [
+        1008,
+        -288
+      ],
+      "parameters": {
+        "options": {},
+        "workflowId": "a0697bd6-4afc-4fdb-8964-7fd4990995a2"
+      },
+      "typeVersion": 1
+    }
+  ],
+  "connections": {
+    "IsNew": {
+      "main": [
+        [
+          {
+            "node": "StoreEvent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "StoreDuplicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Correlate": {
+      "main": [
+        [
+          {
+            "node": "AttachReasons",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DedupCheck": {
+      "main": [
+        [
+          {
+            "node": "IsNew",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "StoreEvent": {
+      "main": [
+        [
+          {
+            "node": "Correlate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GmailNotify": {
+      "main": [
+        []
+      ]
+    },
+    "ResponseGate": {
+      "main": [
+        [
+          {
+            "node": "CallAIAnalysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AttachReasons": {
+      "main": [
+        [
+          {
+            "node": "CallEnrichment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MockWazuhAlert": {
+      "main": [
+        [
+          {
+            "node": "NormalizeAlert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NormalizeAlert": {
+      "main": [
+        [
+          {
+            "node": "DedupCheck",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "StoreDuplicate": {
+      "main": [
+        [
+          {
+            "node": "Counter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook_SOC_Alert": {
+      "main": [
+        [
+          {
+            "node": "AuthCheck",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FormatNotification": {
+      "main": [
+        [
+          {
+            "node": "GmailNotify",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Discord",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "CaseStore",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "ResponseLog",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking \u2018Test workflow\u2019": {
+      "main": [
+        [
+          {
+            "node": "MockWazuhAlert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AuthCheck": {
+      "main": [
+        [
+          {
+            "node": "NormalizeAlert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CallEnrichment": {
+      "main": [
+        [
+          {
+            "node": "ResponseGate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CallAIAnalysis": {
+      "main": [
+        [
+          {
+            "node": "FormatNotification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "pinData": {}
+}

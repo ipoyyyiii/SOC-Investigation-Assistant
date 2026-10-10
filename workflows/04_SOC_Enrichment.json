@@ -1,0 +1,1068 @@
+{
+  "name": "04_SOC_Enrichment",
+  "nodes": [
+    {
+      "id": "2bbc0ae2-bfeb-43df-a26f-aa3372bdfdb1",
+      "name": "EnrichmentTrigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "position": [
+        480,
+        -288
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "typeVersion": 1.1
+    },
+    {
+      "id": "cc-r-5cd25b20",
+      "name": "TICacheRead",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        656,
+        -288
+      ],
+      "parameters": {
+        "query": "SELECT indicator, source, result, fetched_at FROM ti_cache WHERE fetched_at > NOW() - CASE source WHEN 'abuseipdb' THEN INTERVAL '12 hours' ELSE INTERVAL '24 hours' END AND ((source IN ('virustotal_ip','abuseipdb') AND indicator = '{{ $('EnrichmentTrigger').first().json.src_ip }}') OR (source = 'virustotal_file' AND indicator = '{{ ((($('EnrichmentTrigger').first().json.observables || {}).hash) || '') }}') OR (source = 'virustotal_url' AND indicator = '{{ (((($('EnrichmentTrigger').first().json.observables || {}).urls) || [''])[0]) }}'))",
+        "options": {},
+        "operation": "executeQuery"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "IUtC5ZIhrfQ9qUPf",
+          "name": "Postgres account"
+        }
+      },
+      "typeVersion": 2.7,
+      "alwaysOutputData": true
+    },
+    {
+      "id": "pv-db245417",
+      "name": "TICachePivot",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        816,
+        -288
+      ],
+      "parameters": {
+        "jsCode": "// TICachePivot \u2014 collapse cache rows to per-source hit flags (single item)\nconst rows = $input.all().map(i => i.json).filter(r => r && r.source);\nconst g = (s) => { const r = rows.find(x => x.source === s); return (r && r.result) ? 'hit' : null; };\nreturn [{ json: { cache_vt_ip: g('virustotal_ip'), cache_abuse: g('abuseipdb'), cache_file: g('virustotal_file'), cache_url: g('virustotal_url') } }];"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "if-4ba8f1de",
+      "name": "IF_CVTIP",
+      "type": "n8n-nodes-base.if",
+      "position": [
+        976,
+        -288
+      ],
+      "parameters": {
+        "conditions": {
+          "number": [],
+          "string": [
+            {
+              "value1": "={{ $json.cache_vt_ip }}",
+              "operation": "isEmpty"
+            }
+          ],
+          "boolean": []
+        }
+      },
+      "typeVersion": 1
+    },
+    {
+      "id": "ti-vt-6afd8867",
+      "name": "TI_VirusTotal",
+      "type": "n8n-nodes-base.httpRequest",
+      "onError": "continueRegularOutput",
+      "position": [
+        1120,
+        -448
+      ],
+      "parameters": {
+        "url": "={{ 'https://www.virustotal.com/api/v3/ip_addresses/' + $('EnrichmentTrigger').first().json.src_ip }}",
+        "options": {
+          "timeout": 20000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        },
+        "sendHeaders": true,
+        "authentication": "predefinedCredentialType",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "nodeCredentialType": "virusTotalApi"
+      },
+      "credentials": {
+        "virusTotalApi": {
+          "id": "oSzDBN370e3lOfyd",
+          "name": "VirusTotal account"
+        }
+      },
+      "typeVersion": 4.2
+    },
+    {
+      "id": "w-2189cd72",
+      "name": "W_VTIP",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        1264,
+        -448
+      ],
+      "parameters": {
+        "query": "INSERT INTO ti_cache (indicator, source, result, fetched_at) SELECT '{{ $('EnrichmentTrigger').first().json.src_ip }}', 'virustotal_ip', '{{ JSON.stringify($json).replace(/'/g, \"''\") }}'::jsonb, NOW() WHERE '{{ $('EnrichmentTrigger').first().json.src_ip }}' <> '' AND '{{ $json.data }}' <> '' AND '{{ $json.error ? 1 : 0 }}' = '0' ON CONFLICT (indicator, source) DO UPDATE SET result = EXCLUDED.result, fetched_at = NOW();",
+        "options": {},
+        "operation": "executeQuery"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "IUtC5ZIhrfQ9qUPf",
+          "name": "Postgres account"
+        }
+      },
+      "typeVersion": 2.7
+    },
+    {
+      "id": "if-8fe9b61b",
+      "name": "IF_CAbuse",
+      "type": "n8n-nodes-base.if",
+      "position": [
+        1392,
+        -272
+      ],
+      "parameters": {
+        "conditions": {
+          "number": [],
+          "string": [
+            {
+              "value1": "={{ $json.cache_abuse }}",
+              "operation": "isEmpty"
+            }
+          ],
+          "boolean": []
+        }
+      },
+      "typeVersion": 1
+    },
+    {
+      "id": "ti-ab-b9b0dcf8",
+      "name": "TI_AbuseIPDB",
+      "type": "n8n-nodes-base.httpRequest",
+      "onError": "continueRegularOutput",
+      "position": [
+        1552,
+        -448
+      ],
+      "parameters": {
+        "url": "={{ 'https://api.abuseipdb.com/api/v2/check?ipAddress=' + $('EnrichmentTrigger').first().json.src_ip + '&maxAgeInDays=90&verbose' }}",
+        "options": {
+          "timeout": 20000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        },
+        "sendHeaders": true,
+        "authentication": "genericAuth",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        }
+      },
+      "typeVersion": 4.2
+    },
+    {
+      "id": "w-3a5fe360",
+      "name": "W_Abuse",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        1712,
+        -448
+      ],
+      "parameters": {
+        "query": "INSERT INTO ti_cache (indicator, source, result, fetched_at) SELECT '{{ $('EnrichmentTrigger').first().json.src_ip }}', 'abuseipdb', '{{ JSON.stringify($json).replace(/'/g, \"''\") }}'::jsonb, NOW() WHERE '{{ $('EnrichmentTrigger').first().json.src_ip }}' <> '' AND '{{ $json.data }}' <> '' AND '{{ $json.error ? 1 : 0 }}' = '0' ON CONFLICT (indicator, source) DO UPDATE SET result = EXCLUDED.result, fetched_at = NOW();",
+        "options": {},
+        "operation": "executeQuery"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "IUtC5ZIhrfQ9qUPf",
+          "name": "Postgres account"
+        }
+      },
+      "typeVersion": 2.7
+    },
+    {
+      "id": "if-c0c7d3e1",
+      "name": "IF_HasFileHash",
+      "type": "n8n-nodes-base.if",
+      "position": [
+        1872,
+        -256
+      ],
+      "parameters": {
+        "conditions": {
+          "number": [],
+          "string": [
+            {
+              "value1": "={{ $('EnrichmentTrigger').first().json.observables.hash }}",
+              "operation": "isNotEmpty"
+            }
+          ],
+          "boolean": []
+        }
+      },
+      "typeVersion": 1
+    },
+    {
+      "id": "if-6d734c8b",
+      "name": "IF_CFile",
+      "type": "n8n-nodes-base.if",
+      "position": [
+        2048,
+        -416
+      ],
+      "parameters": {
+        "conditions": {
+          "number": [],
+          "string": [
+            {
+              "value1": "={{ $json.cache_file }}",
+              "operation": "isEmpty"
+            }
+          ],
+          "boolean": []
+        }
+      },
+      "typeVersion": 1
+    },
+    {
+      "id": "ti-vf-68462d1a",
+      "name": "TI_VTFile",
+      "type": "n8n-nodes-base.httpRequest",
+      "onError": "continueRegularOutput",
+      "position": [
+        2320,
+        -432
+      ],
+      "parameters": {
+        "url": "={{ 'https://www.virustotal.com/api/v3/files/' + ((($('EnrichmentTrigger').first().json.observables || {}).hash) || 'nohash') }}",
+        "options": {
+          "timeout": 20000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        },
+        "sendHeaders": true,
+        "authentication": "predefinedCredentialType",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "nodeCredentialType": "virusTotalApi"
+      },
+      "credentials": {
+        "virusTotalApi": {
+          "id": "oSzDBN370e3lOfyd",
+          "name": "VirusTotal account"
+        }
+      },
+      "typeVersion": 4.2
+    },
+    {
+      "id": "w-1a564617",
+      "name": "W_File",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        2480,
+        -432
+      ],
+      "parameters": {
+        "query": "INSERT INTO ti_cache (indicator, source, result, fetched_at) SELECT '{{ ((($('EnrichmentTrigger').first().json.observables || {}).hash) || '') }}', 'virustotal_file', '{{ JSON.stringify($json).replace(/'/g, \"''\") }}'::jsonb, NOW() WHERE '{{ ((($('EnrichmentTrigger').first().json.observables || {}).hash) || '') }}' <> '' AND '{{ $json.data }}' <> '' AND '{{ $json.error ? 1 : 0 }}' = '0' ON CONFLICT (indicator, source) DO UPDATE SET result = EXCLUDED.result, fetched_at = NOW();",
+        "options": {},
+        "operation": "executeQuery"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "IUtC5ZIhrfQ9qUPf",
+          "name": "Postgres account"
+        }
+      },
+      "typeVersion": 2.7
+    },
+    {
+      "id": "if-bf305ee8",
+      "name": "IF_HasURL",
+      "type": "n8n-nodes-base.if",
+      "position": [
+        2624,
+        -240
+      ],
+      "parameters": {
+        "conditions": {
+          "number": [],
+          "string": [
+            {
+              "value1": "={{ ((($('EnrichmentTrigger').first().json.observables || {}).urls) || [])[0] }}",
+              "operation": "isNotEmpty"
+            }
+          ],
+          "boolean": []
+        }
+      },
+      "typeVersion": 1
+    },
+    {
+      "id": "if-abaedae2",
+      "name": "IF_CURL",
+      "type": "n8n-nodes-base.if",
+      "position": [
+        2800,
+        -416
+      ],
+      "parameters": {
+        "conditions": {
+          "number": [],
+          "string": [
+            {
+              "value1": "={{ $json.cache_url }}",
+              "operation": "isEmpty"
+            }
+          ],
+          "boolean": []
+        }
+      },
+      "typeVersion": 1
+    },
+    {
+      "id": "ti-u-019f9f9f",
+      "name": "TI_URL",
+      "type": "n8n-nodes-base.httpRequest",
+      "onError": "continueRegularOutput",
+      "position": [
+        3104,
+        -432
+      ],
+      "parameters": {
+        "url": "={{ 'https://www.virustotal.com/api/v3/urls/' + ((($('EnrichmentTrigger').first().json.observables || {}).url_ids || ['nourl'])[0]) }}",
+        "options": {
+          "timeout": 20000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        },
+        "sendHeaders": true,
+        "authentication": "predefinedCredentialType",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "nodeCredentialType": "virusTotalApi"
+      },
+      "credentials": {
+        "virusTotalApi": {
+          "id": "oSzDBN370e3lOfyd",
+          "name": "VirusTotal account"
+        }
+      },
+      "typeVersion": 4.2
+    },
+    {
+      "id": "w-60208f46",
+      "name": "W_URL",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        3248,
+        -432
+      ],
+      "parameters": {
+        "query": "INSERT INTO ti_cache (indicator, source, result, fetched_at) SELECT '{{ ((($('EnrichmentTrigger').first().json.observables || {}).urls) || [''])[0] }}', 'virustotal_url', '{{ JSON.stringify($json).replace(/'/g, \"''\") }}'::jsonb, NOW() WHERE '{{ ((($('EnrichmentTrigger').first().json.observables || {}).urls) || [''])[0] }}' <> '' AND '{{ $json.data }}' <> '' AND '{{ $json.error ? 1 : 0 }}' = '0' ON CONFLICT (indicator, source) DO UPDATE SET result = EXCLUDED.result, fetched_at = NOW();",
+        "options": {},
+        "operation": "executeQuery"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "IUtC5ZIhrfQ9qUPf",
+          "name": "Postgres account"
+        }
+      },
+      "typeVersion": 2.7
+    },
+    {
+      "id": "ti-mg-61315274",
+      "name": "TIMerge",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        3456,
+        -224
+      ],
+      "parameters": {
+        "jsCode": "// TIMerge \u2014 cache-aware TI (fresh ?? cached ?? UNKNOWN)\nconst ctx = $('EnrichmentTrigger').first().json;\nconst rows = {};\ntry { $('TICacheRead').all().forEach(i => { rows[i.json.source] = i.json; }); } catch (e) {}\nfunction pick(nodeName, source) {\n  try {\n    const j = $(nodeName).first().json;\n    if (j && j.data) return { v: j, from: 'live', at: new Date().toISOString() };\n  } catch (e) {}\n  try {\n    const r = rows[source];\n    if (r && r.result) return { v: r.result, from: 'cache', at: r.fetched_at };\n  } catch (e) {}\n  return { v: null, from: 'none', at: null };\n}\nfunction vtStats(body) { try { const s = body.data.attributes.last_analysis_stats; return { malicious: s.malicious || 0, suspicious: s.suspicious || 0, harmless: s.harmless || 0 }; } catch (e) { return 'UNKNOWN'; } }\nfunction abStats(body) { try { const d = body.data; return { confidence: d.abuseConfidenceScore, country: d.countryCode, reports: d.totalReports }; } catch (e) { return 'UNKNOWN'; } }\n\nfunction pickRaw(nodeName, source, probe) {\n  try { const j = $(nodeName).first().json; if (j && !j.error && (probe(j))) return { v: j, from: 'live' }; } catch (e) {}\n  try { const r = rows[source]; if (r && r.result && probe(r.result)) return { v: r.result, from: 'cache' }; } catch (e) {}\n  return { v: null, from: 'none' };\n}\nfunction urlhausInfo(b) { try { return { url_status: (b || {}).url_status || 'unknown', query_status: (b || {}).query_status || 'unknown' }; } catch (e) { return 'UNKNOWN'; } }\nfunction otxInfo(b) { try { return { pulses: (((b || {}).pulse_info || {}).count) || 0 }; } catch (e) { return 'UNKNOWN'; } }\nconst p_urlhaus = pickRaw('TI_URLhaus', 'urlhaus', function (j) { return j.query_status; });\nconst p_otx = pickRaw('TI_OTX', 'otx_ip', function (j) { return j.pulse_info || j.base_indicator; });\nconst p_ip = pick('TI_VirusTotal', 'virustotal_ip');\nconst p_ab = pick('TI_AbuseIPDB', 'abuseipdb');\nconst p_vf = pick('TI_VTFile', 'virustotal_file');\nconst p_u = pick('TI_URL', 'virustotal_url');\nconst vtInfo = vtStats(p_ip.v), abInfo = abStats(p_ab.v), vfInfo = vtStats(p_vf.v), urlInfo = vtStats(p_u.v);\nconst ti = [{ indicator: ctx.src_ip, type: 'ipv4', sources: { virustotal: vtInfo, abuseipdb: abInfo, otx: otxInfo(p_otx.v) }, cached: (p_ip.from === 'cache' || p_ab.from === 'cache'), checked_at: new Date().toISOString() }];\nconst _h = ((ctx.observables || {}).hash) || '';\nif (_h) ti.push({ indicator: _h, type: 'file_hash', sources: { virustotal: vfInfo }, cached: (p_vf.from === 'cache'), checked_at: p_vf.at || new Date().toISOString() });\nconst _urls = (((ctx.observables || {}).urls) || []);\nif (_urls.length) ti.push({ indicator: _urls[0], type: 'url', sources: { virustotal: urlInfo, urlhaus: urlhausInfo(p_urlhaus.v) }, cached: (p_u.from === 'cache'), checked_at: p_u.at || new Date().toISOString() });\nreturn [{ json: Object.assign({}, ctx, { threat_intel: ti }) }];"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "rc-2e597ec3",
+      "name": "TI_RelatedCache",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        3600,
+        -224
+      ],
+      "parameters": {
+        "query": "SELECT DISTINCT ON (c.indicator) c.indicator, c.result, c.fetched_at FROM ti_cache c WHERE c.source = 'virustotal_ip' AND c.fetched_at > NOW() - INTERVAL '24 hours' AND c.indicator IN (SELECT DISTINCT src_ip FROM soc_events WHERE ts > (TIMESTAMPTZ '{{ $('EnrichmentTrigger').first().json.timestamp }}' - INTERVAL '15 minutes') AND ts <= TIMESTAMPTZ '{{ $('EnrichmentTrigger').first().json.timestamp }}' AND src_ip <> '' AND src_ip <> '{{ $('EnrichmentTrigger').first().json.src_ip }}' AND (host = '{{ $('EnrichmentTrigger').first().json.agent_name }}' OR username = '{{ $('EnrichmentTrigger').first().json.dst_user }}')) LIMIT 3;",
+        "options": {},
+        "operation": "executeQuery"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "IUtC5ZIhrfQ9qUPf",
+          "name": "Postgres account"
+        }
+      },
+      "typeVersion": 2.7,
+      "alwaysOutputData": true
+    },
+    {
+      "id": "rm-2c11bf69",
+      "name": "AttachRelatedTI",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        3744,
+        -224
+      ],
+      "parameters": {
+        "jsCode": "// AttachRelatedTI \u2014 merge cached verdicts for related IPs (no new quota)\nconst main = $('TIMerge').first().json;\nconst rows = $input.all().map(i => i.json).filter(r => r && r.indicator);\nconst related_ti = rows.map(r => {\n  let res = r.result;\n  if (typeof res === 'string') { try { res = JSON.parse(res); } catch (e) { res = null; } }\n  let v = 'UNKNOWN';\n  try { const s = res.data.attributes.last_analysis_stats; v = { malicious: s.malicious || 0, suspicious: s.suspicious || 0 }; } catch (e) {}\n  return { indicator: r.indicator, virustotal: v };\n});\nreturn [{ json: Object.assign({}, main, { related_ti: related_ti }) }];"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "otx-if-1",
+      "name": "IF_OTXIP",
+      "type": "n8n-nodes-base.if",
+      "position": [
+        3560,
+        900
+      ],
+      "parameters": {
+        "options": {},
+        "conditions": {
+          "options": {
+            "version": 2,
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "otxip",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              },
+              "leftValue": "={{ $('EnrichmentTrigger').first().json.src_ip }}",
+              "rightValue": ""
+            }
+          ]
+        },
+        "looseTypeValidation": true
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "ti-otx-1",
+      "name": "TI_OTX",
+      "type": "n8n-nodes-base.httpRequest",
+      "onError": "continueRegularOutput",
+      "position": [
+        3780,
+        900
+      ],
+      "parameters": {
+        "url": "={{ 'https://otx.alienvault.com/api/v1/indicators/IPv4/' + $('EnrichmentTrigger').first().json.src_ip + '/general' }}",
+        "options": {
+          "timeout": 20000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        },
+        "sendHeaders": true,
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "nodeCredentialType": "httpHeaderAuth"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "xzk0E7010q7Sjn6a",
+          "name": "TI-OTX-auth"
+        }
+      },
+      "typeVersion": 4.2
+    },
+    {
+      "id": "prep-otx-1",
+      "name": "PrepOTX",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        4000,
+        900
+      ],
+      "parameters": {
+        "jsCode": "// PrepOTX \u2014 sql-safe bundle for cache write\nconst j = $input.first().json || {};\nconst ip = String(($('EnrichmentTrigger').first().json.src_ip) || '');\nif (!ip || (j && j.error) || !(j.pulse_info || j.base_indicator)) return [{ json: { result_b64: '' } }];\nreturn [{ json: { indicator: ip, result_b64: Buffer.from(JSON.stringify(j)).toString('base64') } }];"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "w-otx-1",
+      "name": "W_OTX",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        4220,
+        900
+      ],
+      "parameters": {
+        "query": "INSERT INTO ti_cache (indicator, source, result, fetched_at) SELECT '{{ $json.indicator }}', 'otx_ip', convert_from(decode('{{ $json.result_b64 }}', 'base64'), 'UTF8')::jsonb, NOW() WHERE '{{ $json.indicator }}' <> '' AND '{{ $json.result_b64 }}' <> '' ON CONFLICT (indicator, source) DO UPDATE SET result = EXCLUDED.result, fetched_at = NOW();",
+        "options": {},
+        "operation": "executeQuery"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "IUtC5ZIhrfQ9qUPf",
+          "name": "Postgres account"
+        }
+      },
+      "typeVersion": 2.5
+    },
+    {
+      "id": "urlh-if-1",
+      "name": "IF_HasURLhaus",
+      "type": "n8n-nodes-base.if",
+      "position": [
+        3560,
+        1100
+      ],
+      "parameters": {
+        "options": {},
+        "conditions": {
+          "options": {
+            "version": 2,
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "urlh",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              },
+              "leftValue": "={{ ((($('EnrichmentTrigger').first().json.observables || {}).urls) || [''])[0] }}",
+              "rightValue": ""
+            }
+          ]
+        },
+        "looseTypeValidation": true
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "ti-urlh-1",
+      "name": "TI_URLhaus",
+      "type": "n8n-nodes-base.httpRequest",
+      "onError": "continueRegularOutput",
+      "position": [
+        3780,
+        1100
+      ],
+      "parameters": {
+        "url": "https://urlhaus-api.abuse.ch/v1/url/",
+        "method": "POST",
+        "options": {
+          "timeout": 20000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        },
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "sendHeaders": true,
+        "authentication": "genericCredentialType",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "url",
+              "value": "={{ ((($('EnrichmentTrigger').first().json.observables || {}).urls) || [''])[0] }}"
+            }
+          ]
+        },
+        "genericAuthType": "httpHeaderAuth",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "nodeCredentialType": "httpHeaderAuth"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "uRlHaUs9000aa11b2c3d4e5f6071829304",
+          "name": "TI-URLhaus-auth"
+        }
+      },
+      "typeVersion": 4.2
+    },
+    {
+      "id": "prep-urlh-1",
+      "name": "PrepURLhaus",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        4000,
+        1100
+      ],
+      "parameters": {
+        "jsCode": "// PrepURLhaus \u2014 sql-safe bundle for cache write\nconst j = $input.first().json || {};\nconst url = String(((($('EnrichmentTrigger').first().json.observables || {}).urls) || [''])[0]);\nif (!url || (j && j.error) || !j.query_status || j.query_status === 'http_post_expected') return [{ json: { result_b64: '' } }];\nreturn [{ json: { indicator: url, result_b64: Buffer.from(JSON.stringify(j)).toString('base64') } }];"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "w-urlh-1",
+      "name": "W_URLhaus",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        4220,
+        1100
+      ],
+      "parameters": {
+        "query": "INSERT INTO ti_cache (indicator, source, result, fetched_at) SELECT '{{ $json.indicator }}', 'urlhaus', convert_from(decode('{{ $json.result_b64 }}', 'base64'), 'UTF8')::jsonb, NOW() WHERE '{{ $json.indicator }}' <> '' AND '{{ $json.result_b64 }}' <> '' ON CONFLICT (indicator, source) DO UPDATE SET result = EXCLUDED.result, fetched_at = NOW();",
+        "options": {},
+        "operation": "executeQuery"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "IUtC5ZIhrfQ9qUPf",
+          "name": "Postgres account"
+        }
+      },
+      "typeVersion": 2.5
+    },
+    {
+      "id": "restore-otx-1",
+      "name": "RestoreOTX",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        4440,
+        900
+      ],
+      "parameters": {
+        "jsCode": "// RestoreItem \u2014 HTTP error nodes (continueRegularOutput) replace the flow item with {error};\n// restore the original alert item so downstream (IFs/TIMerge) keeps rule_level, observables, etc.\nreturn [{ json: $('EnrichmentTrigger').first().json }];"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "restore-urlh-1",
+      "name": "RestoreURLhaus",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        4440,
+        1100
+      ],
+      "parameters": {
+        "jsCode": "return [{ json: $('EnrichmentTrigger').first().json }];"
+      },
+      "typeVersion": 2
+    }
+  ],
+  "connections": {
+    "W_OTX": {
+      "main": [
+        [
+          {
+            "node": "RestoreOTX",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "W_URL": {
+      "main": [
+        [
+          {
+            "node": "TIMerge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TI_OTX": {
+      "main": [
+        [
+          {
+            "node": "PrepOTX",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TI_URL": {
+      "main": [
+        [
+          {
+            "node": "W_URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "W_File": {
+      "main": [
+        [
+          {
+            "node": "IF_HasURL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "W_VTIP": {
+      "main": [
+        [
+          {
+            "node": "IF_CAbuse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF_CURL": {
+      "main": [
+        [
+          {
+            "node": "TI_URL",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "TIMerge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PrepOTX": {
+      "main": [
+        [
+          {
+            "node": "W_OTX",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TIMerge": {
+      "main": [
+        [
+          {
+            "node": "TI_RelatedCache",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "W_Abuse": {
+      "main": [
+        [
+          {
+            "node": "IF_HasFileHash",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF_CFile": {
+      "main": [
+        [
+          {
+            "node": "TI_VTFile",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF_HasURL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF_CVTIP": {
+      "main": [
+        [
+          {
+            "node": "TI_VirusTotal",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF_CAbuse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF_CAbuse": {
+      "main": [
+        [
+          {
+            "node": "TI_AbuseIPDB",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF_HasFileHash",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF_HasURL": {
+      "main": [
+        [
+          {
+            "node": "IF_CURL",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "TIMerge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TI_VTFile": {
+      "main": [
+        [
+          {
+            "node": "W_File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "W_URLhaus": {
+      "main": [
+        [
+          {
+            "node": "RestoreURLhaus",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RestoreOTX": {
+      "main": [
+        [
+          {
+            "node": "IF_CVTIP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TI_URLhaus": {
+      "main": [
+        [
+          {
+            "node": "PrepURLhaus",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PrepURLhaus": {
+      "main": [
+        [
+          {
+            "node": "W_URLhaus",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TICacheRead": {
+      "main": [
+        [
+          {
+            "node": "TICachePivot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TICachePivot": {
+      "main": [
+        [
+          {
+            "node": "TI_OTX",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TI_AbuseIPDB": {
+      "main": [
+        [
+          {
+            "node": "W_Abuse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TI_VirusTotal": {
+      "main": [
+        [
+          {
+            "node": "W_VTIP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF_HasFileHash": {
+      "main": [
+        [
+          {
+            "node": "IF_CFile",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF_HasURL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RestoreURLhaus": {
+      "main": [
+        [
+          {
+            "node": "TICacheRead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AttachRelatedTI": {
+      "main": [
+        []
+      ]
+    },
+    "TI_RelatedCache": {
+      "main": [
+        [
+          {
+            "node": "AttachRelatedTI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EnrichmentTrigger": {
+      "main": [
+        [
+          {
+            "node": "TI_URLhaus",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "pinData": {}
+}

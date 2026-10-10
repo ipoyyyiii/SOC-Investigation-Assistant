@@ -1,0 +1,27 @@
+# secrets / env
+*.env
+.env*
+!*.env.example
+*creds*
+*credentials*
+*.pem
+*.key
+!**/public/*.key
+
+# n8n exports that may contain live IDs/data
+*.backup.json
+*.local.json
+
+# runtime / logs
+*.log
+logs/
+var/lib/
+*.pid
+
+# OS
+.DS_Store
+Thumbs.db
+
+# temp
+tmp/
+*.tmp

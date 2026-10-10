@@ -1,0 +1,30 @@
+{
+  "timestamp": "2026-10-05T03:14:22.000Z",
+  "rule": {
+    "id": "5712",
+    "level": 10,
+    "description": "SSHD brute force attack.",
+    "groups": ["syslog", "sshd", "authentication_failed"]
+  },
+  "agent": {
+    "id": "001",
+    "name": "linux-server"
+  },
+  "manager": {
+    "name": "wazuh-manager"
+  },
+  "data": {
+    "srcip": "185.220.101.5",
+    "dstip": "10.0.0.15",
+    "dstuser": "root",
+    "srcport": "52341",
+    "dstport": "22",
+    "protocol": "tcp",
+    "action": "failed_login"
+  },
+  "location": "/var/log/auth.log",
+  "decoder": {
+    "name": "sshd"
+  },
+  "id": "wazuh-alert-mock-0001"
+}

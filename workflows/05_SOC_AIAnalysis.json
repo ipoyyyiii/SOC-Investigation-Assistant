@@ -1,0 +1,320 @@
+{
+  "name": "05_SOC_AIAnalysis",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "14e3f983-5bb8-4d95-8a8f-b709ef79db9c",
+      "name": "AIAnalysisTrigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        3888,
+        -224
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openRouterApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "HTTP-Referer",
+              "value": "http://localhost:5678"
+            },
+            {
+              "name": "X-Title",
+              "value": "SOC-Investigation-Assistant-Phase1"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {model: \"nvidia/nemotron-3-ultra-550b-a55b:free\", messages: [{role: \"system\", content: \"You are a SOC investigation assistant. Return ONLY raw JSON, no markdown, with keys: summary, observed_behavior[], potential_attack_chain[], mitre[] (objects with technique_id, technique_name, reason; include ONLY techniques directly supported by evidence, else empty array), confidence (0-1), recommended_investigation[], recommended_containment[]. Rules: DO NOT invent facts, IOCs, timestamps, or MITRE IDs. DISTINGUISH fact from inference. If the input lacks incident_id and src_ip fields, return an object with summary No security evidence provided, confidence 0, and empty arrays.\"}, {role: \"user\", content: \"Analyze this SOC evidence package: \" + JSON.stringify($json)}]} }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "id": "0fa087fa-52cb-486d-9c07-0dec613f418a",
+      "name": "AI_Investigation_OpenRouter",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        4032,
+        -224
+      ],
+      "typeVersion": 4.2,
+      "credentials": {
+        "openRouterApi": {
+          "id": "bgTJ9Ch6sMmaVHaE",
+          "name": "OpenRouter account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [],
+          "string": [
+            {
+              "value1": "={{ $json.choices }}",
+              "operation": "isEmpty"
+            }
+          ],
+          "boolean": []
+        }
+      },
+      "id": "if-e9821982",
+      "name": "IF_NeedFallback",
+      "type": "n8n-nodes-base.if",
+      "position": [
+        4192,
+        -224
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openRouterApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "HTTP-Referer",
+              "value": "http://localhost:5678"
+            },
+            {
+              "name": "X-Title",
+              "value": "SOC-Investigation-Assistant-Phase1"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {model: \"google/gemma-4-31b-it:free\", messages: [{role: \"system\", content: \"You are a SOC investigation assistant. Return ONLY raw JSON, no markdown, with keys: summary, observed_behavior[], potential_attack_chain[], mitre[] (objects with technique_id, technique_name, reason; include ONLY techniques directly supported by evidence, else empty array), confidence (0-1), recommended_investigation[], recommended_containment[]. Rules: DO NOT invent facts, IOCs, timestamps, or MITRE IDs. DISTINGUISH fact from inference. If the input lacks incident_id and src_ip fields, return an object with summary No security evidence provided, confidence 0, and empty arrays.\"}, {role: \"user\", content: \"Analyze this SOC evidence package: \" + JSON.stringify($('AIAnalysisTrigger').first().json)}]} }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "id": "fb-e5eb679d",
+      "name": "AI_Fallback1_Gemma",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        4464,
+        -432
+      ],
+      "typeVersion": 4.2,
+      "credentials": {
+        "openRouterApi": {
+          "id": "bgTJ9Ch6sMmaVHaE",
+          "name": "OpenRouter account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [],
+          "string": [
+            {
+              "value1": "={{ $json.choices }}",
+              "operation": "isEmpty"
+            }
+          ],
+          "boolean": []
+        }
+      },
+      "id": "if-364f4050",
+      "name": "IF_NeedFallback2",
+      "type": "n8n-nodes-base.if",
+      "position": [
+        4624,
+        -432
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openRouterApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "HTTP-Referer",
+              "value": "http://localhost:5678"
+            },
+            {
+              "name": "X-Title",
+              "value": "SOC-Investigation-Assistant-Phase1"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {model: \"nvidia/nemotron-3.5-lightning:free\", messages: [{role: \"system\", content: \"You are a SOC investigation assistant. Return ONLY raw JSON, no markdown, with keys: summary, observed_behavior[], potential_attack_chain[], mitre[] (objects with technique_id, technique_name, reason; include ONLY techniques directly supported by evidence, else empty array), confidence (0-1), recommended_investigation[], recommended_containment[]. Rules: DO NOT invent facts, IOCs, timestamps, or MITRE IDs. DISTINGUISH fact from inference. If the input lacks incident_id and src_ip fields, return an object with summary No security evidence provided, confidence 0, and empty arrays.\"}, {role: \"user\", content: \"Analyze this SOC evidence package: \" + JSON.stringify($('AIAnalysisTrigger').first().json)}]} }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "id": "fb-60d88619",
+      "name": "AI_Fallback2_Lightning",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        4848,
+        -448
+      ],
+      "typeVersion": 4.2,
+      "credentials": {
+        "openRouterApi": {
+          "id": "bgTJ9Ch6sMmaVHaE",
+          "name": "OpenRouter account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// AIMerge - single exit for AI sub-workflow (primary or fallback result)\n// Input is whichever AI branch succeeded (or the last failure); pass through for FormatNotification.\nreturn [{ json: $input.first().json }];"
+      },
+      "id": "9d0d9ffc-784f-4e42-8c33-26bd8f6f80a8",
+      "name": "AIMerge",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5008,
+        -208
+      ]
+    }
+  ],
+  "connections": {
+    "AIAnalysisTrigger": {
+      "main": [
+        [
+          {
+            "node": "AI_Investigation_OpenRouter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI_Investigation_OpenRouter": {
+      "main": [
+        [
+          {
+            "node": "IF_NeedFallback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF_NeedFallback": {
+      "main": [
+        [
+          {
+            "node": "AI_Fallback1_Gemma",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AIMerge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI_Fallback1_Gemma": {
+      "main": [
+        [
+          {
+            "node": "IF_NeedFallback2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF_NeedFallback2": {
+      "main": [
+        [
+          {
+            "node": "AI_Fallback2_Lightning",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AIMerge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI_Fallback2_Lightning": {
+      "main": [
+        [
+          {
+            "node": "AIMerge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AIMerge": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "pinData": {}
+}

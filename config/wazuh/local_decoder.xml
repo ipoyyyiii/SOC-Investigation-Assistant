@@ -1,0 +1,14 @@
+<decoder name="clamav-scan">
+  <prematch>FOUND sha256=</prematch>
+  <regex>FOUND sha256=(\S+)</regex>
+  <order>sha256</order>
+</decoder>
+
+
+
+
+<decoder name="suricata-bridge">
+  <prematch>^SOC-SURICATA </prematch>
+  <regex>src_ip=(\S+) dst_ip=(\S+) proto=(\S+) method=(\S+) url=(\S+)</regex>
+  <order>srcip,dstip,proto,method,url</order>
+</decoder>
