@@ -114,8 +114,7 @@
             }
           ],
           "boolean": []
-        },
-        "combineOperation": "all"
+        }
       },
       "typeVersion": 1
     },
@@ -124,8 +123,8 @@
       "name": "Respond403",
       "type": "n8n-nodes-base.respondToWebhook",
       "position": [
-        912,
-        160
+        928,
+        -16
       ],
       "parameters": {
         "options": {

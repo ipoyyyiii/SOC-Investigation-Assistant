@@ -124,7 +124,7 @@ Cosmetic: AI sometimes returns objects (not arrays) in OBSERVED/INFERRED -> raw 
 - Wazuh: localfile apache access.log + syscheck realtime on /var/www/html/uploads. Custom rule 100011 level 10 (if_sid 31100 + match cmd=) MITRE T1505.003.
 - Debug journey: rule initially dead because web-accesslog decoder SUCCESS swallows bare <match> rules; fixed by anchoring under 31100. <field name=url> rejected by analysisd ("url is static") -> use if_sid+match.
 - Side incident: /var/ossec/etc got wiped when apt removed wazuh-agent (package conflict with wazuh-manager); rebuilt ossec.conf integration+localfile+syscheck, custom rule/decoder, restored soc-webhook.key. Manager active.
-- E2E: sh.php?cmd=hostname -> alert 100011 -> custom-n8n -> INC-20261008-4409 (level 10, src_ip 18.138.203.100) -> execs 359/360/361 all success.
+- E2E: sh.php?cmd=hostname -> alert 100011 -> custom-n8n -> INC-20261008-4409 (level 10, src_ip <N8N-VPS>) -> execs 359/360/361 all success.
 
 ## TI URL path + error-poison fix (2026-10-08/09) — LIVE
 - Test1: real URLhaus URL http://123.9.84.231:39954/i -> VT 404 (URL not in VT DB) AND the error got CACHED into ti_cache (poison) — bug found by testing.
@@ -170,7 +170,7 @@ Cosmetic: AI sometimes returns objects (not arrays) in OBSERVED/INFERRED -> raw 
 - Lab: docker.io + DVWA (citizenstig) + MariaDB on Wazuh host (dvwa:8080 local-only), proxied via nginx `location ^~ /dvwa/` -> access.log monitored by Wazuh (lesson: regex `~ \.php$` prefix location must be `^~`; POST bodies NOT logged -> POST-based cmd-injection invisible to log rules, documented gap).
 - Exploit proven (python urllib session driver /tmp/dvwa_drive2.py on host): security=low, SQLi `1' OR '1'='1` -> dump users (admin/Gordon/Hack), LFI ../../../../etc/passwd -> leaked, CMDi `127.0.0.1;cat /etc/passwd` -> executed.
 - Wazuh custom rules 100013 SQLi / 100014 LFI / 100015 CMDi (if_sid 31100 anchor, T1190). URL-encoding mattered: urllib sends %20OR%20 not '+OR+' -> rule patterns updated.
-- E2E: VPS replay -> INC-20261009-8316 (SQLi, src 18.138.203.100, risk 50 MEDIUM, url observable captured) + localhost runs INC-2810/7191.
+- E2E: VPS replay -> INC-20261009-8316 (SQLi, src <N8N-VPS>, risk 50 MEDIUM, url observable captured) + localhost runs INC-2810/7191.
 
 ## URLhaus + OTX TI sources — LIVE (2026-10-09)
 - Credentials via user (n8n UI): TI-URLhaus-auth, TI-OTX-auth (httpHeaderAuth).
@@ -191,7 +191,7 @@ Cosmetic: AI sometimes returns objects (not arrays) in OBSERVED/INFERRED -> raw 
 - Suricata 7.0.3 on Wazuh host (enp39s0, note: default eth0 wrong), ET/open rules + custom soc-lab.rules (sid 1000001 C2 beacon pattern on /dvwa/beacon, sid 1000002 DNS).
 - eve.json (alert+http+dns+tls). Bridge: /usr/local/bin/suricata-bridge.py (systemd) tails eve.json, flatten alert events -> /var/log/suricata/soc-alerts.log (SOC-SURICATA ...) -> Wazuh localfile syslog + decoder suricata-bridge (srcip/dstip/proto/method/url) + rule 100016 (T1071 Application Layer Protocol).
 - Wazuh json decoder CANNOT read eve.json ("Too many fields for JSON decoder") -> flatten-bridge pattern (same as custom-n8n integration).
-- E2E: curl /dvwa/beacon from VPS -> suricata alert -> wazuh 100016 -> n8n -> INC-20261009-6709 (src_ip 18.138.203.100, risk 35) + INC-2909 earlier. logtest+live both verified.
+- E2E: curl /dvwa/beacon from VPS -> suricata alert -> wazuh 100016 -> n8n -> INC-20261009-6709 (src_ip <N8N-VPS>, risk 35) + INC-2909 earlier. logtest+live both verified.
 - GAP noted: normalizer still routes suricata alerts via fallback (no attack_type/network branch, rule.mitre not propagated) -> risk 35 LOW (acceptable, backlog item).
 - DNS-exfil live demo: NOT done (resolver topology; DNS logging + rule ready).
 
@@ -202,9 +202,9 @@ Cosmetic: AI sometimes returns objects (not arrays) in OBSERVED/INFERRED -> raw 
 - E2E: INC-20261009-1615 rule_id keycloak-impossible-travel, risk 79 HIGH, src 1.1.1.1. Normalizer branch 'identity' + ResponseGate +40 for impossible_travel.
 - LIMITATIONS: lab-simulated (spoofed XFF, not real geo-separated clients); Entra-ID real impossible travel still P1/P2 paid.
 
-## Windows lab (AWS c7i.flex-large, Server 2022, 47.129.220.252) — LIVE (2026-10-09/10)
+## Windows lab (AWS c7i.flex-large, Server 2022, <WIN-LAB>) — LIVE (2026-10-09/10)
 - Access: RDP from Mac (Windows App) for bootstrap; remote via WinRM 5985 (socadmin) from VPS for all automation. SG: Wazuh host needs inbound 1514/1515 from VM IP (agent calls OUT).
-- Wazuh agent 002 win-lab-01 enrolled to manager 13.212.120.162 + Sysmon64 (SwiftOnSecurity config) via WinRM. Auditpol failure-audit enabled.
+- Wazuh agent 002 win-lab-01 enrolled to manager <WAZUH-HOST> + Sysmon64 (SwiftOnSecurity config) via WinRM. Auditpol failure-audit enabled.
 - Custom rules (if_sid chains matter — root rules lose to ruleset parents): 100021 (4625 T1110), 100022 (child of 60106, 4624 T1078), 100023 (if_group sysmon_event1 + commandLine pcre2, T1059.001), 100024 (if_sid 61138, 7045 T1543.003).
 - ATTACKS REAL + E2E: 6x failed logon (LogonUser wrong pass) -> 100021 -> INC-8377; success logon after failures -> 100022 -> INC-5842; PowerShell DownloadString cradle -> Sysmon EID1 -> 100023 -> INC-7919 (risk 45 MEDIUM); sc.exe create service -> 7045 -> 100024.
 - NOT DONE: AD DS forest promotion (Install-WindowsFeature success=False on this box; dcpromo.log empty) -> kerberoast/AS-REP/NTDS.dit rows remain untested. Lateral is same-host (PsExec pattern via sc.exe).
@@ -228,7 +228,7 @@ Cosmetic: AI sometimes returns objects (not arrays) in OBSERVED/INFERRED -> raw 
 ## AWS CloudTrail account-takeover — LIVE (2026-10-10)
 - User created IAM read-only user soc-cloudtrail-ro; creds at /root/aws-creds (VPS). Poller /usr/local/bin/soc-cloudtrail.py (cron */5) -> lookup-events -> POST source=cloudtrail (dedupe via /var/lib/soc-cloudtrail-seen.json).
 - Normalizer branch (source=cloudtrail): attack_type cloud-identity, sensitive-event rule_ids (+25), denied (+10), public-ip (+5).
-- E2E: real account events -> incidents (root ConsoleLogin events from 36.78.113.35 Safari/macOS MFA=true etc). DEMO: attacker with stolen read-only creds tried StopLogging (T1562.008) from 18.138.203.100 -> AccessDenied -> INC-20261010-7019 risk 75 HIGH. CreateAccessKey attempt also denied (event pending CloudTrail latency, cron will pick up).
+- E2E: real account events -> incidents (root ConsoleLogin events from <analyst-home-IP> Safari/macOS MFA=true etc). DEMO: attacker with stolen read-only creds tried StopLogging (T1562.008) from <N8N-VPS> -> AccessDenied -> INC-20261010-7019 risk 75 HIGH. CreateAccessKey attempt also denied (event pending CloudTrail latency, cron will pick up).
 
 ## Notification presentation fixes (2026-10-10) — verified via cloudtrail playback
 Bugs found from real Discord message (INC-8487): (1) hardcoded "Wazuh rule" label; (2) SSH playbook for cloud events; (3) TI hostname lookup shown as ipv4; (4) EVIDENCE block missing in AI-fallback path; (5) missing space in label.
@@ -250,7 +250,29 @@ Pitfall logged: mustache-anchor ordering (fix3 anchors on text fix1 removes) + u
 ## Notify v4 — email full values (2026-10-13)
 - Email now full/copyable (hash 64-char, full AI reasons, caps 15) — Discord stays tight. Proof INC-20261013-8043 (phish 71, Gmail 13.2KB accepted, Discord 1739c delivered). 5 nits fixed (Rule prefix, metric label, `—`, engine phrasing, hottest-indicator headline).
 
+## Risk v5 + TI connectors (2026-10-13, parallel)
+- AbuseIPDB fixed (missing credential → 401s; now objects live INC-8092/9240). URLhaus fixed (dropped `threat` field; +15 fired live INC-7569 risk 55).
+- ResponseGate v5: OTX tiered +3/+6/+10, cloud single-pub (was double). Offline 19/19; live INC-6800 (35 LOW), INC-2171 (61 MEDIUM, hash 65-mal). OTX/cloud tiers offline-only (TEST-NET cold; cloud replay blocked by source divergence).
+- NULL-risk 32 excluded-not-backfilled (era TI unrecoverable). Test incidents left OPEN pending disposition.
+
+## Reconcile DONE (2026-10-13)
+- Live adopts repo: Correlate 24h+flag (+AttachReasons companion), StoreEvent explicit-ts+upsert, NormalizeAlert accepts cloudtrail. Partial +8 in same deploy (counter 427).
+- Proof: SSH 8384/1707, cloudtrail 7728 (70 MEDIUM, DLQ flood ended), phish 3421 (+15 fired, 55), 5968 (31). failed_jobs zero from change. Collateral: 1 exec killed by deploy restart + 1 poller event lost to accidental docker restart (honest log in reconcile-report).
+- Untouched: StoreDuplicate/DedupCheck/CaseStore-escaping divergences; StopLogging regex space; OTX live-tier; dispositions.
+
+## Cloud fidelity batch (2026-10-13) — 6/6 live, one deploy
+- Poller excluded from correlation (identity-based, stored but not correlated). Unknown fields omitted. Source split src_ip/src_host with dynamic labels. Cloud timeline uses action names. One TI no-match string. Same-action related reason.
+- Proof: poller replay → no incident; AssumeRole IP → INC-6931; hostname → INC-5536 (Source hostname row, zero unknown-X); SSH/phish unchanged. failed_jobs zero. Counter 428.
+
+## Round-2 (2026-10-13) — divergences closed
+- 01 remainder repo→live (ctr 430, dedup proven). 02 auth chain: deployed by unknown concurrent writer, verified, skipped. 03 merged+deployed (render 200). 06 repo←live. NEW: F1 apostrophe-in-idem_key bug (unfixed, proposed); F2 dead `_evt` code.
+
 ## Notify v3 — Discord EMBED + 11 content fixes (2026-10-13)
 - Embed: DiscordEmbed HTTP node (hardcoded webhook URL + ?wait=true; $env blocked instance-wide, scratch-verified). Proof: execution 9996 all-success, Discord returned message id (delivered), Gmail accepted. Incidents: INC-20261013-3018 (SSH, 75 HIGH), INC-20261013-3076 (phish, 61 MEDIUM, was 38), INC-20261013-5811 (phish fresh-IP, 71 MEDIUM).
 - Content: TI-max risk (probes 65/85 exact), word-boundary AI summary + standalone confidence, 4-step playbooks, auth-only login line, MITRE ID+name, cell ellipsis, Unknown verdicts, explicit metrics, short hashes, Flag column, report button intact. Offline verify3.py 319/319 pass. failed_jobs: no new rows from this change.
 - Left: Discord/Gmail client-side render (human); cloudtrail-source live-vs-repo divergence untouched; StoreDuplicate dedup self-refresh noted.
+
+## Cloud fidelity (2026-10-13, live 01 counter 428 / 89418fe4)
+- Replays: poller LookupEvents (stored dup, no incident), AssumeRole IP -> INC-20261013-6931 (29 LOW), AssumeRole hostname -> INC-20261013-5536 (24 LOW), SSH 5712/192.0.2.91 -> INC-20261013-2260 (35 LOW), phish benign/cold -> INC-20261013-4933 (31 LOW). All executions success (10278-10290); 4 Discord + 4 Gmail intentional.
+- Poller proof: 5536 window 11 rows incl 4 poller -> Evidence 7 events, no poller IP, Related poller-free with 'same action' on 6931. Unknown proof: no unknown-X interpolations; hostname proof: 'Source hostname' row + 'from host'. TI proof: exact constant in live text, offline in embed/email. Regression: SSH/phish shapes unchanged. failed_jobs zero from change (3 pre-replay AI-OOM flakes only).
+- Harness /tmp/opencode/cloud-fidelity/harness.cjs 34/34 on byte-identical deployed code. Full detail: /tmp/opencode/cloud-fidelity-report.md.

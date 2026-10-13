@@ -1,4 +1,10 @@
-🎯 PROJECT: SOC Investigation Assistant
+> **Archived design doc (English note):** original 2026-10-01 system plan, written in Indonesian.
+> Superseded by [README.md](../../README.md) and the evidence log [tests/phase1-4.md](../../tests/phase1-4.md).
+> Shipped system (7 workflows, Discord+Gmail, OpenRouter chain, 21 cases) differs from the 13-workflow plan below.
+> Kept for provenance; content below is unchanged apart from markdown formatting.
+
+# 🎯 PROJECT: SOC Investigation Assistant
+
 Tujuan utamanya
 Ketika SIEM menghasilkan security alert, sistem secara otomatis:
 mengumpulkan → mengkorelasi → memperkaya → menyusun timeline → merangkum → menyajikan evidence
@@ -6,8 +12,12 @@ supaya analyst nggak perlu melakukan pekerjaan data-gathering yang repetitif dar
 Tetapi:
 TP / FP / escalation / final response tetap menjadi keputusan analyst.
 Jadi automation kita berhenti pada evidence + analysis + recommendation, bukan mengambil alih analyst.
-1. Konsep besarnya
+
+## 1. Konsep besarnya
+
 Target akhirnya:
+
+```text
                     ┌──────────────────────┐
                     │       ENDPOINT       │
                     │ Linux / Windows      │
@@ -68,8 +78,12 @@ Target akhirnya:
                      ┌────────┼────────┐
                      ▼        ▼        ▼
                     TP       FP     ESCALATE
+```
+
 Itu north star architecture kita.
-2. Pembagian tanggung jawab
+
+## 2. Pembagian tanggung jawab
+
 Ini harus jelas dari awal.
 Wazuh
 Tugasnya:
@@ -106,10 +120,14 @@ Perform deeper investigation
 Decide TP / FP
 Decide escalation
 Authorize response
-3. Deployment architecture
+
+## 3. Deployment architecture
+
 Karena device lu ngelag kalau Docker jalan, n8n langsung di VPS.
 Gue desain seperti ini:
                   INTERNET
+
+```text
                      │
                      ▼
             ┌─────────────────┐
@@ -124,11 +142,15 @@ Gue desain seperti ini:
        ┌─────────────┼─────────────┐
        │             │             │
        ▼             ▼             ▼
+```
+
     Wazuh API     Gemini/API   Threat Intel
 Jangan taruh Wazuh full stack di VM n8n kecil.
 Wazuh dan n8n kita anggap sebagai dua environment berbeda.
 Contohnya:
 Wazuh environment
+
+```text
       │
       │ webhook
       ▼
@@ -139,15 +161,22 @@ AWS/VPS n8n
       ├── AbuseIPDB
       ├── Gmail
       └── Database
-4. LLM layer harus modular
+```
+
+## 4. LLM layer harus modular
+
 Jangan hard-code workflow ke Gemini.
 Kita desain:
                    n8n
+
+```text
                     │
               AI Analysis
                     │
        ┌────────────┼────────────┐
        ▼            ▼            ▼
+```
+
     Gemini      OpenRouter     Ollama
 V1
 Pakai API.
@@ -161,9 +190,13 @@ Baru eksperimen:
 Ollama
 Kalau mau menguji local inference, bisa dilakukan terpisah lewat machine/Colab/Kaggle.
 Jadi LLM hanyalah plug-in.
-5. WORKFLOW 01 — Alert Intake
+
+## 5. WORKFLOW 01 — Alert Intake
+
 Ini pintu masuk.
 Wazuh
+
+```text
  ↓
 Webhook
  ↓
@@ -177,6 +210,8 @@ Generate Incident ID
  ↓
 Extract basic fields
  ↓
+```
+
 Continue
 Contoh output internal:
 {
@@ -194,13 +229,17 @@ Contoh output internal:
 Kenapa normalize?
 Karena semua workflow selanjutnya jangan bekerja dengan JSON Wazuh mentah.
 Semua memakai schema milik kita.
-6. WORKFLOW 02 — Deduplication
+
+## 6. WORKFLOW 02 — Deduplication
+
 Ini penting banget.
 Misalnya attacker melakukan:
 200 failed SSH login
 Wazuh bisa menghasilkan banyak alert.
 Kita nggak mau:
 200 alerts
+
+```text
 ↓
 200 investigation
 ↓
@@ -210,6 +249,8 @@ Kita mau:
 ↓
 1 incident
 ↓
+```
+
 1 investigation
 Key-nya bisa berupa kombinasi:
 source IP
@@ -228,7 +269,9 @@ SSH brute force
 +
 15 minutes
 → satu incident.
-7. WORKFLOW 03 — IOC Extraction
+
+## 7. WORKFLOW 03 — IOC Extraction
+
 Kita extract semua observable.
 IP
 Domain
@@ -261,7 +304,9 @@ Process
 /tmp/payload.sh
 Tapi nggak semua observable langsung dianggap relevant.
 Ini akan diputuskan oleh correlation layer.
-8. WORKFLOW 04 — Automated Correlation
+
+## 8. WORKFLOW 04 — Automated Correlation
+
 INI JANTUNG PROJECT KITA.
 Tujuan lu tadi:
 “gue nggak mau bolak-balik query terus.”
@@ -291,7 +336,9 @@ file
 network
 privilege
 persistence
-9. Correlation jangan cuma berdasarkan “sama IP”
+
+## 9. Correlation jangan cuma berdasarkan “sama IP”
+
 Ini penting.
 Misalnya:
 185.x.x.x
@@ -322,12 +369,16 @@ Contoh:
   ]
 }
 Ini penting karena nanti analyst bisa tahu kenapa suatu event dimasukkan ke incident.
-10. Event filtering
+
+## 10. Event filtering
+
 Misalnya Wazuh menemukan:
 500 events
 Jangan langsung kirim semua ke AI.
 Pipeline:
 500 raw events
+
+```text
        ↓
 filter irrelevant
        ↓
@@ -340,10 +391,16 @@ deduplicate
 timeline
        ↓
 AI
+```
+
 Jadi AI tidak dibebani noise.
-11. WORKFLOW 05 — Threat Intelligence
+
+## 11. WORKFLOW 05 — Threat Intelligence
+
 Setelah IOC extraction:
 IP
+
+```text
  ↓
 VirusTotal
  ↓
@@ -355,6 +412,8 @@ VT / other reputation
 Hash:
 Hash
  ↓
+```
+
 VirusTotal
 Output normalized:
 {
@@ -375,7 +434,9 @@ source
 timestamp
 result
 Jadi provenance tetap jelas.
-12. WORKFLOW 06 — Asset Context
+
+## 12. WORKFLOW 06 — Asset Context
+
 Selain attacker, kita juga perlu memahami victim.
 Misalnya:
 Host:
@@ -396,7 +457,9 @@ Nanti risk context bisa berbeda antara:
 Developer laptop
 dan:
 Production server
-13. WORKFLOW 07 — Timeline Builder
+
+## 13. WORKFLOW 07 — Timeline Builder
+
 Semua hasil correlation dimasukkan ke timeline.
 Contoh:
 03:10:00
@@ -426,7 +489,9 @@ Cron modified
 03:16:30
 Outbound connection
 Timeline ini akan menjadi core evidence.
-14. WORKFLOW 08 — Evidence Normalization
+
+## 14. WORKFLOW 08 — Evidence Normalization
+
 Sebelum AI:
 Wazuh Alert
 +
@@ -454,7 +519,9 @@ digabung jadi satu object:
 }
 Ini yang masuk ke LLM.
 Bukan raw Wazuh JSON.
-15. WORKFLOW 09 — AI Investigation
+
+## 15. WORKFLOW 09 — AI Investigation
+
 Prompt AI harus dibuat sangat constrained.
 AI diminta:
 Summarize incident
@@ -482,7 +549,9 @@ Output:
   "recommended_investigation": [],
   "recommended_containment": []
 }
-16. Bedakan tiga kategori output AI
+
+## 16. Bedakan tiga kategori output AI
+
 Ini gue mau banget diterapkan.
 OBSERVED
 47 failed SSH attempts
@@ -493,7 +562,9 @@ RECOMMENDED
 Verify whether root authentication was authorized.
 Jadi analyst bisa langsung melihat:
 mana fakta, mana interpretasi, mana saran.
-17. Deterministic risk score
+
+## 17. Deterministic risk score
+
 Gue juga mau bikin:
 Threat Score
 tetapi bukan berasal dari LLM.
@@ -518,7 +589,9 @@ Output:
 Risk Score = 87/100
 Risk Level = HIGH
 AI hanya menjelaskan score tersebut.
-18. WORKFLOW 10 — Investigation Report Generator
+
+## 18. WORKFLOW 10 — Investigation Report Generator
+
 Sekarang kita punya:
 Evidence
 +
@@ -531,8 +604,12 @@ AI Analysis
 Risk Score
 kemudian dibentuk menjadi:
 SOC INVESTIGATION REPORT
-19. Format notification yang kita mau
+
+## 19. Format notification yang kita mau
+
 Ketika analyst buka Telegram/Discord/email:
+
+```text
 🚨 SOC INCIDENT
 
 INC-20261001-0001
@@ -642,8 +719,12 @@ Time window: ±15 min
 
 Full report:
 <LINK>
+```
+
 Itu adalah output yang gue bayangkan sejak lu menjelaskan kebutuhan lu tadi.
-20. Full report harus lebih detail daripada notification
+
+## 20. Full report harus lebih detail daripada notification
+
 Notification:
 high-level context
 Full report:
@@ -664,10 +745,14 @@ Quick understanding
 Full investigation page/report
       ↓
 Deep investigation
-21. WORKFLOW 11 — Case Storage
+
+## 21. WORKFLOW 11 — Case Storage
+
 Setiap incident disimpan.
 Minimal:
 incidents
+
+```text
 ├── incident_id
 ├── timestamp
 ├── rule_id
@@ -681,6 +766,8 @@ incidents
 ├── ai_confidence
 ├── status
 └── raw_alert
+```
+
 Lalu:
 incident_events
 incident_iocs
@@ -689,7 +776,9 @@ incident_enrichment
 incident_actions
 Kenapa?
 Supaya nanti lu punya historical case.
-22. Analyst decision
+
+## 22. Analyst decision
+
 Database punya:
 status:
 OPEN
@@ -716,7 +805,9 @@ FP
 Reason:
 Authorized vulnerability scanner
 Nah, itu decision analyst.
-23. Optional response layer
+
+## 23. Optional response layer
+
 Ini full version, tapi bukan tahap pertama.
 Misalnya:
 Risk >= threshold
@@ -737,7 +828,9 @@ sendirian nggak cukup.
 Default:
 BLOCK_ENABLED = FALSE
 Jadi project tetap aman.
-24. Error handling
+
+## 24. Error handling
+
 Setiap external service harus bisa gagal.
 Misalnya:
 VirusTotal ❌
@@ -756,7 +849,9 @@ partial data
 +
 failure reason
 Ini penting supaya automation punya behavior yang predictable.
-25. Security layer
+
+## 25. Security layer
+
 Karena ini security project, gue nggak mau project-nya sendiri jadi security disaster.
 Minimal:
 HTTPS
@@ -771,7 +866,9 @@ Audit logs
 Dan:
 Wazuh → n8n
 lebih baik melalui authenticated connection daripada webhook anonim.
-26. Modular n8n architecture
+
+## 26. Modular n8n architecture
+
 Gue nggak mau satu workflow 100 node.
 Kita pecah:
 01_SOC_Alert_Intake
@@ -789,6 +886,8 @@ Kita pecah:
 13_SOC_Error_Handler
 Orchestrator menjadi otaknya:
 Alert
+
+```text
  ↓
 Investigation Orchestrator
  ├── Correlation
@@ -802,14 +901,20 @@ Report
 Notification
  ↓
 Storage
+```
+
 Ini jauh lebih gampang di-maintain.
-27. Attack scenario yang kita pakai
+
+## 27. Attack scenario yang kita pakai
+
 Jangan langsung bikin 20 jenis attack.
 Kita mulai dari:
 Scenario 1 — SSH brute force
 failed login × banyak
 Scenario 2 — SSH brute force + successful login
 failed
+
+```text
 ↓
 success
 Scenario 3 — Post-auth activity
@@ -836,10 +941,17 @@ Scenario 6 — Privilege escalation
 user activity
 ↓
 privilege change
+```
+
 Jadi automation akhirnya nggak bergantung pada SSH doang.
-28. Tahapan pembangunannya
-PHASE 0 — Infrastructure
+
+## 28. Tahapan pembangunannya
+
+### PHASE 0 — Infrastructure
+
 AWS VPS
+
+```text
 ↓
 Ubuntu
 ↓
@@ -851,9 +963,15 @@ HTTPS
 ↓
 Security hardening
 Output:
+```
+
 n8n accessible dan aman.
-PHASE 1 — Mock SOC Alert
+
+### PHASE 1 — Mock SOC Alert
+
 Fake Wazuh JSON
+
+```text
 ↓
 n8n
 ↓
@@ -862,15 +980,21 @@ normalize
 AI
 ↓
 notification
+```
+
 Belum ada Wazuh real.
 Tujuannya memastikan architecture n8n-nya jalan.
-PHASE 2 — Wazuh Integration
+
+### PHASE 2 — Wazuh Integration
+
 Wazuh
 ↓
 n8n webhook
 Mulai dari:
 SSH authentication alerts
-PHASE 3 — Correlation
+
+### PHASE 3 — Correlation
+
 Tambahkan:
 same IP
 same host
@@ -878,11 +1002,15 @@ same user
 time window
 related events
 Ini menurut gue milestone paling penting.
-PHASE 4 — Threat Intelligence
+
+### PHASE 4 — Threat Intelligence
+
 Tambahkan:
 VirusTotal
 AbuseIPDB
-PHASE 5 — Timeline
+
+### PHASE 5 — Timeline
+
 Gabungkan:
 alert
 +
@@ -890,7 +1018,9 @@ related events
 +
 TI
 menjadi incident timeline.
-PHASE 6 — AI Investigation
+
+### PHASE 6 — AI Investigation
+
 Masukkan evidence package ke:
 Gemini
 dan hasilkan:
@@ -898,35 +1028,49 @@ summary
 observations
 inferences
 recommendations
-PHASE 7 — Rich Notification
+
+### PHASE 7 — Rich Notification
+
 Bangun output untuk:
 Discord
 Telegram
 Gmail
 dengan IOC dan context lengkap.
-PHASE 8 — Case Storage
+
+### PHASE 8 — Case Storage
+
 Tambahkan:
 PostgreSQL / Supabase
 untuk menyimpan incident.
-PHASE 9 — Human Review
+
+### PHASE 9 — Human Review
+
 Tambahkan:
 TP
 FP
 ESCALATED
 dan analyst notes.
-PHASE 10 — Response
+
+### PHASE 10 — Response
+
 Baru:
 optional containment
 dengan deterministic gates.
-PHASE 11 — Expansion
+
+### PHASE 11 — Expansion
+
 Tambah:
 PowerShell
 Malware
 Privilege Escalation
 Persistence
 Web Attacks
-29. Full end-state flow
+
+## 29. Full end-state flow
+
 Ini versi yang gue anggap FINAL ARCHITECTURE:
+
+```text
                            ┌──────────────────┐
                            │    ENDPOINTS     │
                            │ Linux / Windows  │
@@ -1042,7 +1186,11 @@ Ini versi yang gue anggap FINAL ARCHITECTURE:
                     ┌────────────┴────────────┐
                     ▼                         ▼
                AUTOMATED BLOCK             SKIP
-30. Dan posisi AI-nya sebenarnya cuma ini
+```
+
+## 30. Dan posisi AI-nya sebenarnya cuma ini
+
+```text
                ┌──────────────┐
                │     WAZUH    │
                └──────┬───────┘
@@ -1067,6 +1215,8 @@ Ini versi yang gue anggap FINAL ARCHITECTURE:
             ┌──────────────────┐
             │   ANALYST        │
             └──────────────────┘
+```
+
 Dan itu justru desain yang gue mau.
 Karena kalau nanti lu interview dan ditanya:
 “What role does AI play in your SOC automation project?”
@@ -1074,9 +1224,13 @@ Lu bisa menjawab secara teknis:
 “The AI is used as an investigation and summarization layer over correlated security evidence. Deterministic logic handles event correlation, IOC enrichment, scoring, and response gates, while the analyst retains final decision authority.”
 Itu kedengerannya jauh lebih matang daripada:
 “I send Wazuh alerts to Gemini and Gemini tells me whether they're malicious.”
-31. Definition of Done
+
+## 31. Definition of Done
+
 Project ini gue anggap full version selesai kalau satu SSH incident bisa melakukan:
 Wazuh detects attack
+
+```text
         ↓
 n8n receives alert
         ↓
@@ -1108,12 +1262,15 @@ analyst opens it
         ↓
 analyst can verify raw evidence
         ↓
+```
+
 analyst decides TP / FP / escalation
 Dan setelah itu baru kita bisa bilang:
 “Gue punya automated SOC investigation assistant.”
 Yang paling penting: urutan prioritasnya
 Gue bakal jangan menyentuh dashboard, Ollama, auto-block, atau 5 jenis attack sekaligus dulu.
 Prioritas:
+
 1. n8n VPS
 2. Secure n8n
 3. Wazuh → n8n

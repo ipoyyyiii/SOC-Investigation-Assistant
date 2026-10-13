@@ -63,7 +63,7 @@
 | Alert triage & disposition | ✅ | decision endpoint, analyst identity, anti-spoof, revoke |
 | FP / benign handling | ✅ | grub/shim case study + ASN-based auto-close (INC-8584, DB-IP 477k ranges) |
 | Threat-intel enrichment | ✅ | **4 sources live**: VT + AbuseIPDB + URLhaus + OTX (cache-first, 0-API cache hits) |
-| Timeline / deterministic risk / gates | ✅ | formula-driven (web +15, public-IP +5, URLhaus +15, OTX +10…); propose-only block |
+| Timeline / deterministic risk / gates | ✅ | formula-driven (web +15, public-IP +5, URLhaus +15, OTX tiered +3/+6/+10…); propose-only block |
 | Report + analyst decision loop | ✅ | HTML evidence page; TP/FP/ESCALATE with audit table |
 | PowerShell / LOLBins | ✅ | deterministic obfuscation score **+ real execution on Windows host** (INC-7919, T1059.001) |
 | Phishing | 🟡 | lab mailserver + canary click → rule 100012 (T1566.002) → INC-8665 |
@@ -74,7 +74,7 @@
 | Insider / exfil (DNS/file) | ✅ | Suricata DNS exfil rules → Wazuh T1048.003 → INC-7107 |
 | Lateral movement (PsExec/RDP/SMB) | 🟡 | single-host service-install pattern (INC-3693, T1543.003); cross-host needs 2nd host |
 | AD kerberoast / AS-REP / NTDS | ✅ | Rubeus kerberoast → 4769 `0x40810000` (T1558.003, INC-1903); NTDS shadow-copy attempt (T1003.003, INC-9472) |
-| AWS account takeover | ✅ | read-only creds abuse demo: StopLogging/CreateAccessKey denied → INC-7019 **risk 75 HIGH** |
+| AWS account takeover | ✅ | read-only creds abuse demo: StopLogging/CreateAccessKey denied → INC-7019 **risk 70 MEDIUM** |
 
 **Score: 18 live-tested · 3 lab-simulated (labeled) · 0 untouched.** Attack techniques were chosen from real-world prevalence data (Verizon DBIR 2026: exploit-vuln 31%, credential abuse 13%, ransomware 48%; Mandiant M-Trends: exploits 33% initial vector) — and honest labels are kept where the demo is not real-world.
 
@@ -83,7 +83,7 @@
 ## Detection pipelines actually shipped
 
 - **Deterministic evidence block** in every notification: event counts, distinct IPs/users, TI verdicts with engine counts, retro-links, success-after-failure flag, obfuscation score, process chain.
-- **Risk formula** (`ResponseGate`, readable in [`workflows/01`](workflows/01_SOC_Alert_Intake.json)): `10 + rule_level×2 + source weights`, e.g. web-exploit +15, public src +5, URLhaus-malware +15, OTX-pulses +10, auth-breakthrough +40.
+- **Risk formula** (`ResponseGate`, readable in [`workflows/01`](workflows/01_SOC_Alert_Intake.json)): `10 + rule_level×2 + source weights`, e.g. web-exploit +15, public src +5, URLhaus-malware +15, OTX-pulses tiered +3/+6/+10 (1–9/10–29/≥30 pulses), auth-breakthrough +40.
 - **Notification hygiene**: source-aware labels, per-`attack_type` triage playbooks, TI skipped for non-IP indicators, 1900-char Discord cap with detail in the report page.
 - **Reliability**: TI timeouts 20s, DLQ captures failed jobs, idempotency keys (double-POST → 1 row), always-output guards on branching queries, base64-encoded payloads to survive quotes/AI text in SQL.
 - **Security**: webhook + decision endpoints authenticated, timestamp replay window, per-analyst tokens with anti-spoofing and revoke, analyst decision audit table, block actions propose-only.

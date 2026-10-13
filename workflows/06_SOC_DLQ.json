@@ -24,8 +24,8 @@
       "name": "LogFailedJob",
       "parameters": {
         "operation": "executeQuery",
-        "options": {},
-        "query": "INSERT INTO failed_jobs (execution_id, workflow_name, node_name, error_msg) VALUES (NULLIF('={{ (($json.execution || {}).id || \"\") }}', '')::int, '={{ ((($json.workflow || {}).name || \"unknown\")).toString().replace(/'/g, \"''\") }}', '={{ (((($json.execution || {}).lastNodeExecuted) || \"unknown\")).toString().replace(/'/g, \"''\") }}', '={{ JSON.stringify((($json.execution || {}).error || $json.error || {\"message\": \"unknown error\"})).replace(/'/g, \"''\") }}');"
+        "query": "INSERT INTO failed_jobs (execution_id, workflow_name, node_name, error_msg) SELECT {{ $json.eid }}, '{{ $json.wname }}', '{{ $json.nname }}', '{{ $json.emsg }}' WHERE '{{ $json.wname }}' <> '' OR '{{ $json.emsg }}' <> '';",
+        "options": {}
       },
       "position": [
         460,
@@ -33,16 +33,40 @@
       ],
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.7
+    },
+    {
+      "parameters": {
+        "jsCode": "// LogSanitize \u2014 build safe scalar values, no mustache-in-SQL\nconst e = ($input.first() || {}).json || {};\nconst ex = e.execution || {};\nconst wf = e.workflow || {};\nconst q = (s) => String(s == null ? '' : s).replace(/'/g, \"''\");\nconst eidraw = Number.isInteger(ex.id) ? ex.id : parseInt(ex.id, 10);\nconst eid = Number.isFinite(eidraw) ? eidraw : 'NULL';\nreturn [{ json: {\n  eid: eid,\n  wname: q(wf.name || 'unknown'),\n  nname: q(ex.lastNodeExecuted || 'unknown'),\n  emsg: q((ex.error && (ex.error.message || JSON.stringify(ex.error))) || e.error || 'unknown error').slice(0, 2000)\n} }];"
+      },
+      "id": "san-1023d504",
+      "name": "LogSanitize",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        464,
+        304
+      ],
+      "typeVersion": 2
     }
   ],
   "connections": {
+    "LogSanitize": {
+      "main": [
+        [
+          {
+            "node": "LogFailedJob",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "ErrorTrigger": {
       "main": [
         [
           {
-            "index": 0,
-            "node": "LogFailedJob",
-            "type": "main"
+            "node": "LogSanitize",
+            "type": "main",
+            "index": 0
           }
         ]
       ]

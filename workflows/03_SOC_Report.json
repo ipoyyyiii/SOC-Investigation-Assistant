@@ -114,7 +114,7 @@
         432
       ],
       "parameters": {
-        "jsCode": "// RenderReport \u2014 full HTML (bagian 20)\nconst inc = (() => { try { return $('QIncident').first().json; } catch (e) { return null; } })();\nif (!inc || !inc.incident_id) return [{ json: { html: '<h1>Incident not found</h1>', notfound: true } }];\nconst evts = $('QEvents').all().map(i => i.json);\nconst iocs = (() => { try { return $('QIOCs').all().map(i => i.json); } catch (e) { return []; } })();\nconst acts = (() => { try { return $('QActions').first().json; } catch (e) { return {}; } })();\nconst esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;');\nconst erow = evts.map(e => '<tr><td>' + esc(e.ts) + '</td><td>' + esc(e.src_ip) + '</td><td>' + esc(e.username) + '</td><td>' + esc(e.rule_id) + '</td><td>' + esc(e.outcome) + '</td></tr>').join('');\nconst irow = iocs.map(o => '<tr><td>' + esc(o.ioc_type) + '</td><td>' + esc(o.value) + '</td></tr>').join('');\n// deterministic process chain (parent -> child) from captured observables\nconst obs = (e) => { try { return (e.raw || {}).observables || {}; } catch (x) { return {}; } };\nconst procs = evts.filter(e => { const o = obs(e); return o.parent_image || o.command; });\nconst prow = procs.map(e => { const o = obs(e); return '<tr><td>' + esc(e.ts) + '</td><td>' + esc(o.parent_image || '-') + '</td><td>' + esc(o.command || o.url || '-') + '</td><td>' + esc((o.hash || '').slice(0, 16) + ((o.hash || '').length > 16 ? '...' : '')) + '</td></tr>'; }).join('');\nconst ptree = procs.length ? ('<h2>Process chain (deterministic)</h2><table border=1><tr><th>ts</th><th>parent_image</th><th>command / url</th><th>hash</th></tr>' + prow + '</table>') : '';\nconst html = '<html><head><title>' + esc(inc.incident_id) + '</title></head><body style=\"font-family:monospace\">'\n + '<h1>SOC Investigation Report ' + esc(inc.incident_id) + '</h1>'\n + '<p>Status: <b>' + esc(inc.status) + '</b> | Risk: see evidence | Source: ' + esc(inc.source) + ' | Created: ' + esc(inc.created_at) + '</p>'\n + '<p>Note: ' + esc(inc.analyst_note || '-') + '</p>'\n + '<h2>AI Summary</h2><pre>' + esc(inc.ai_summary || '-') + '</pre>'\n + '<h2>Events (' + evts.length + ')</h2><table border=1><tr><th>ts</th><th>src</th><th>user</th><th>rule</th><th>outcome</th></tr>' + erow + '</table>'\n + '<h2>IOCs</h2><table border=1><tr><th>type</th><th>value</th></tr>' + irow + '</table>'\n + ptree + '<h2>Decision</h2><pre>' + esc(JSON.stringify(acts)) + '</pre>'\n + '</body></html>';\nreturn [{ json: { html } }];"
+        "jsCode": "// RenderReport \u2014 full HTML (bagian 20)\nconst inc = (() => { try { return $('QIncident').first().json; } catch (e) { return null; } })();\nif (!inc || !inc.incident_id) return [{ json: { html: '<h1>Incident not found</h1>', notfound: true } }];\nconst evts = $('QEvents').all().map(i => i.json);\nconst iocs = (() => { try { return $('QIOCs').all().map(i => i.json); } catch (e) { return []; } })();\nconst acts = (() => { try { return $('QActions').first().json; } catch (e) { return {}; } })();\nconst esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;');\n// cloud-fidelity (repo-only, NOT live-deployed): hostname lives in raw.observables.src_host; cloud Event column shows the action name with outcome fallback.\nconst _src = (e) => e.src_ip || (((e.raw || {}).observables || {}).src_host || '');\nconst _evt = (e) => { const o = ((e.raw || {}).observables || {}); return (e.source === 'cloudtrail' && o.event_name) ? o.event_name : e.outcome; };\nconst erow = evts.map(e => '<tr><td>' + esc(e.ts) + '</td><td>' + esc(_src(e)) + '</td><td>' + esc(e.username) + '</td><td>' + esc(e.rule_id) + '</td><td>' + esc(_evt(e)) + '</td></tr>').join('');\nconst irow = iocs.map(o => '<tr><td>' + esc(o.ioc_type) + '</td><td>' + esc(o.value) + '</td></tr>').join('');\n// deterministic process chain (parent -> child) from captured observables\nconst obs = (e) => { try { return (e.raw || {}).observables || {}; } catch (x) { return {}; } };\nconst procs = evts.filter(e => { const o = obs(e); return o.parent_image || o.command; });\nconst prow = procs.map(e => { const o = obs(e); return '<tr><td>' + esc(e.ts) + '</td><td>' + esc(o.parent_image || '-') + '</td><td>' + esc(o.command || o.url || '-') + '</td><td>' + esc((o.hash || '').slice(0, 16) + ((o.hash || '').length > 16 ? '...' : '')) + '</td></tr>'; }).join('');\nconst ptree = procs.length ? ('<h2>Process chain (deterministic)</h2><table border=1><tr><th>ts</th><th>parent_image</th><th>command / url</th><th>hash</th></tr>' + prow + '</table>') : '';\nconst html = '<html><head><title>' + esc(inc.incident_id) + '</title></head><body style=\"font-family:monospace\">'\n + '<h1>SOC Investigation Report ' + esc(inc.incident_id) + '</h1>'\n + '<p>Status: <b>' + esc(inc.status) + '</b> | Risk: see evidence | Source: ' + esc(inc.source) + ' | Created: ' + esc(inc.created_at) + '</p>'\n + '<p>Note: ' + esc(inc.analyst_note || '-') + '</p>'\n + '<h2>AI Summary</h2><pre>' + esc(inc.ai_summary || '-') + '</pre>'\n + '<h2>Events (' + evts.length + ')</h2><table border=1><tr><th>ts</th><th>src</th><th>user</th><th>rule</th><th>outcome</th></tr>' + erow + '</table>'\n + '<h2>IOCs</h2><table border=1><tr><th>type</th><th>value</th></tr>' + irow + '</table>'\n + ptree + '<h2>Decision</h2><pre>' + esc(JSON.stringify(acts)) + '</pre>'\n + '</body></html>';\nreturn [{ json: { html } }];"
       },
       "typeVersion": 2
     },
@@ -215,14 +215,192 @@
         "responseBody": "Forbidden"
       },
       "typeVersion": 1.5
+    },
+    {
+      "parameters": {
+        "jsCode": "const q = ($input.first().json.query || {});\nconst key = String(q.key || '').replace(/'/g, \"''\");\nreturn [{ json: { key } }];"
+      },
+      "id": "m-auth-1",
+      "name": "AuthTokenM",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        176,
+        592
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [],
+          "string": [
+            {
+              "value1": "={{ $json.auth }}",
+              "operation": "isEmpty"
+            }
+          ],
+          "boolean": [],
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          }
+        },
+        "options": {}
+      },
+      "id": "m-if-1",
+      "name": "IF_AuthM",
+      "type": "n8n-nodes-base.if",
+      "position": [
+        512,
+        592
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT 'ok' AS auth FROM app_config WHERE key='report_token' AND value = '{{ $json.key }}';",
+        "options": {}
+      },
+      "id": "m-qauth-1",
+      "name": "QAuthM",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        352,
+        592
+      ],
+      "typeVersion": 2.5,
+      "credentials": {
+        "postgres": {
+          "id": "IUtC5ZIhrfQ9qUPf",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT (SELECT count(*) FROM incidents) AS total, (SELECT count(*) FROM incidents WHERE status='OPEN') AS open, (SELECT count(*) FROM analyst_decisions WHERE verdict='TP') AS tp, (SELECT count(*) FROM analyst_decisions WHERE verdict='FP') AS fp, (SELECT count(*) FROM analyst_decisions WHERE verdict='ESCALATE') AS esc, (SELECT count(*) FROM incidents WHERE risk_level='HIGH') AS high, (SELECT count(*) FROM incidents WHERE risk_level='MEDIUM') AS med, (SELECT count(*) FROM incidents WHERE risk_level='LOW') AS low, (SELECT count(DISTINCT analyst) FROM analyst_decisions) AS analysts, (SELECT round(avg(extract(epoch from (d.created_at - i.created_at))/3600),1) FROM analyst_decisions d JOIN incidents i ON i.incident_id=d.incident_id WHERE d.verdict IN ('TP','FP')) AS mttr_h, (SELECT json_agg(row) FROM (SELECT to_char(created_at,'YYYY-MM-DD') AS d, count(*) AS c FROM incidents WHERE created_at > now() - interval '14 days' GROUP BY 1 ORDER BY 1) row) AS per_day, (SELECT json_agg(row) FROM (SELECT rule_id AS r, count(*) AS c FROM incidents GROUP BY 1 ORDER BY 2 DESC LIMIT 10) row) AS top_rules;",
+        "options": {}
+      },
+      "id": "m-q-1",
+      "name": "QMetrics",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        704,
+        608
+      ],
+      "typeVersion": 2.5,
+      "credentials": {
+        "postgres": {
+          "id": "IUtC5ZIhrfQ9qUPf",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// RenderMetrics \u2014 SOC KPI dashboard (deterministic, from analyst_decisions + incidents)\nconst r = $input.first().json;\nconst esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;');\nconst tpfp = ((r.tp || 0) + (r.fp || 0)) ? Math.round(100 * (r.tp || 0) / ((r.tp || 0) + (r.fp || 0))) : '-';\nconst row = (k, v) => '<tr><td>' + esc(k) + '</td><td>' + esc(v) + '</td></tr>';\nlet h = '<html><head><title>SOC Metrics</title></head><body style=\"font-family:monospace\">'\n + '<h1>SOC Metrics (live)</h1>'\n + '<h2>Disposition</h2><table border=1><tr><th>metric</th><th>value</th></tr>'\n + row('incidents (total)', r.total) + row('open', r.open)\n + row('TP', r.tp) + row('FP', r.fp) + row('ESCALATE', r.esc)\n + row('TP rate (decided)', tpfp + '%') + row('analysts active', r.analysts)\n + row('MTTR proxy (h, TP/FP)', (r.mttr_h === null ? '-' : r.mttr_h)) + '</table>'\n + '<h2>Risk distribution</h2><table border=1><tr><th>level</th><th>count</th></tr>'\n + row('HIGH', r.high) + row('MEDIUM', r.med) + row('LOW', r.low) + '</table>';\ntry { const pd = r.per_day || []; h += '<h2>Incidents/day (14d)</h2><table border=1><tr><th>day</th><th>count</th></tr>' + pd.map(x => row(x.d, x.c)).join('') + '</table>'; } catch (e) {}\ntry { const tr = r.top_rules || []; h += '<h2>Top rules</h2><table border=1><tr><th>rule</th><th>count</th></tr>' + tr.map(x => row(x.r, x.c)).join('') + '</table>'; } catch (e) {}\nh += '<p>Source of truth: analyst_decisions + incidents. MTTR = decision_time - incident_time.</p></body></html>';\nreturn [{ json: { html: h } }];"
+      },
+      "id": "m-ren-1",
+      "name": "RenderMetrics",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        912,
+        608
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.html }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html"
+              }
+            ]
+          }
+        }
+      },
+      "id": "m-res-1",
+      "name": "RespondMetrics",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "position": [
+        1088,
+        608
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "path": "soc-metrics",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "m-web-1",
+      "name": "WebhookMetrics",
+      "type": "n8n-nodes-base.webhook",
+      "position": [
+        -16,
+        592
+      ],
+      "webhookId": "soc-metrics",
+      "typeVersion": 2
     }
   ],
   "connections": {
+    "QAuth": {
+      "main": [
+        [
+          {
+            "node": "IF_Auth",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "QIOCs": {
       "main": [
         [
           {
             "node": "QActions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "QAuthM": {
+      "main": [
+        [
+          {
+            "node": "IF_AuthM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF_Auth": {
+      "main": [
+        [
+          {
+            "node": "Respond403",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "QIncident",
             "type": "main",
             "index": 0
           }
@@ -251,6 +429,24 @@
         ]
       ]
     },
+    "IF_AuthM": {
+      "main": [
+        [
+          {
+            "node": "Respond403",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "QMetrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "QActions": {
       "main": [
         [
@@ -262,22 +458,11 @@
         ]
       ]
     },
-    "QIncident": {
+    "QMetrics": {
       "main": [
         [
           {
-            "node": "QEvents",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "RenderReport": {
-      "main": [
-        [
-          {
-            "node": "RespondReport",
+            "node": "RenderMetrics",
             "type": "main",
             "index": 0
           }
@@ -295,29 +480,55 @@
         ]
       ]
     },
-    "QAuth": {
+    "QIncident": {
       "main": [
         [
           {
-            "node": "IF_Auth",
+            "node": "QEvents",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "IF_Auth": {
+    "AuthTokenM": {
       "main": [
         [
           {
-            "node": "Respond403",
+            "node": "QAuthM",
             "type": "main",
             "index": 0
           }
-        ],
+        ]
+      ]
+    },
+    "RenderReport": {
+      "main": [
         [
           {
-            "node": "QIncident",
+            "node": "RespondReport",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RenderMetrics": {
+      "main": [
+        [
+          {
+            "node": "RespondMetrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WebhookMetrics": {
+      "main": [
+        [
+          {
+            "node": "AuthTokenM",
             "type": "main",
             "index": 0
           }

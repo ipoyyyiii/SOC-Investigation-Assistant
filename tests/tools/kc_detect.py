@@ -2,7 +2,7 @@
 """Keycloak impossible-travel detector: pull events -> geo-enrich -> haversine -> POST to SOC webhook."""
 import json, os, math, subprocess, time, urllib.request, datetime
 
-KEY_HOST = 'ubuntu@13.212.120.162'
+KEY_HOST = 'ubuntu@<WAZUH-HOST>'
 KEY = '/tmp/soc-install'
 SOC = 'http://127.0.0.1:5678/webhook/soc-alert'
 SOC_KEY = os.environ.get('SOC_KEY', 'REPLACE_WITH_ENV')

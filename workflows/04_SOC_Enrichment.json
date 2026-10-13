@@ -23,7 +23,7 @@
         -288
       ],
       "parameters": {
-        "query": "SELECT indicator, source, result, fetched_at FROM ti_cache WHERE fetched_at > NOW() - CASE source WHEN 'abuseipdb' THEN INTERVAL '12 hours' ELSE INTERVAL '24 hours' END AND ((source IN ('virustotal_ip','abuseipdb') AND indicator = '{{ $('EnrichmentTrigger').first().json.src_ip }}') OR (source = 'virustotal_file' AND indicator = '{{ ((($('EnrichmentTrigger').first().json.observables || {}).hash) || '') }}') OR (source = 'virustotal_url' AND indicator = '{{ (((($('EnrichmentTrigger').first().json.observables || {}).urls) || [''])[0]) }}'))",
+        "query": "SELECT indicator, source, result, fetched_at FROM ti_cache WHERE fetched_at > NOW() - CASE source WHEN 'abuseipdb' THEN INTERVAL '12 hours' ELSE INTERVAL '24 hours' END AND ((source IN ('virustotal_ip','abuseipdb') AND indicator = '{{ $('SanitizeInput').first().json.src_ip_q }}') OR (source = 'virustotal_file' AND indicator = '{{ $('SanitizeInput').first().json.hash_q }}') OR (source = 'virustotal_url' AND indicator = '{{ $('SanitizeInput').first().json.url_q }}'))",
         "options": {},
         "operation": "executeQuery"
       },
@@ -119,7 +119,7 @@
         -448
       ],
       "parameters": {
-        "query": "INSERT INTO ti_cache (indicator, source, result, fetched_at) SELECT '{{ $('EnrichmentTrigger').first().json.src_ip }}', 'virustotal_ip', '{{ JSON.stringify($json).replace(/'/g, \"''\") }}'::jsonb, NOW() WHERE '{{ $('EnrichmentTrigger').first().json.src_ip }}' <> '' AND '{{ $json.data }}' <> '' AND '{{ $json.error ? 1 : 0 }}' = '0' ON CONFLICT (indicator, source) DO UPDATE SET result = EXCLUDED.result, fetched_at = NOW();",
+        "query": "INSERT INTO ti_cache (indicator, source, result, fetched_at) SELECT '{{ $('SanitizeInput').first().json.src_ip_q }}', 'virustotal_ip', '{{ JSON.stringify($json).replace(/'/g, \"''\") }}'::jsonb, NOW() WHERE '{{ $('SanitizeInput').first().json.src_ip_q }}' <> '' AND '{{ $json.data }}' <> '' AND '{{ $json.error ? 1 : 0 }}' = '0' ON CONFLICT (indicator, source) DO UPDATE SET result = EXCLUDED.result, fetched_at = NOW();",
         "options": {},
         "operation": "executeQuery"
       },
@@ -173,7 +173,7 @@
           }
         },
         "sendHeaders": true,
-        "authentication": "genericAuth",
+        "authentication": "genericCredentialType",
         "headerParameters": {
           "parameters": [
             {
@@ -181,9 +181,17 @@
               "value": "application/json"
             }
           ]
-        }
+        },
+        "genericAuthType": "httpHeaderAuth",
+        "nodeCredentialType": "httpHeaderAuth"
       },
-      "typeVersion": 4.2
+      "typeVersion": 4.2,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "DexeK7wWaBeSiy69",
+          "name": "Header Auth account"
+        }
+      }
     },
     {
       "id": "w-3a5fe360",
@@ -194,7 +202,7 @@
         -448
       ],
       "parameters": {
-        "query": "INSERT INTO ti_cache (indicator, source, result, fetched_at) SELECT '{{ $('EnrichmentTrigger').first().json.src_ip }}', 'abuseipdb', '{{ JSON.stringify($json).replace(/'/g, \"''\") }}'::jsonb, NOW() WHERE '{{ $('EnrichmentTrigger').first().json.src_ip }}' <> '' AND '{{ $json.data }}' <> '' AND '{{ $json.error ? 1 : 0 }}' = '0' ON CONFLICT (indicator, source) DO UPDATE SET result = EXCLUDED.result, fetched_at = NOW();",
+        "query": "INSERT INTO ti_cache (indicator, source, result, fetched_at) SELECT '{{ $('SanitizeInput').first().json.src_ip_q }}', 'abuseipdb', '{{ JSON.stringify($json).replace(/'/g, \"''\") }}'::jsonb, NOW() WHERE '{{ $('SanitizeInput').first().json.src_ip_q }}' <> '' AND '{{ $json.data }}' <> '' AND '{{ $json.error ? 1 : 0 }}' = '0' ON CONFLICT (indicator, source) DO UPDATE SET result = EXCLUDED.result, fetched_at = NOW();",
         "options": {},
         "operation": "executeQuery"
       },
@@ -298,7 +306,7 @@
         -432
       ],
       "parameters": {
-        "query": "INSERT INTO ti_cache (indicator, source, result, fetched_at) SELECT '{{ ((($('EnrichmentTrigger').first().json.observables || {}).hash) || '') }}', 'virustotal_file', '{{ JSON.stringify($json).replace(/'/g, \"''\") }}'::jsonb, NOW() WHERE '{{ ((($('EnrichmentTrigger').first().json.observables || {}).hash) || '') }}' <> '' AND '{{ $json.data }}' <> '' AND '{{ $json.error ? 1 : 0 }}' = '0' ON CONFLICT (indicator, source) DO UPDATE SET result = EXCLUDED.result, fetched_at = NOW();",
+        "query": "INSERT INTO ti_cache (indicator, source, result, fetched_at) SELECT '{{ $('SanitizeInput').first().json.hash_q }}', 'virustotal_file', '{{ JSON.stringify($json).replace(/'/g, \"''\") }}'::jsonb, NOW() WHERE '{{ $('SanitizeInput').first().json.hash_q }}' <> '' AND '{{ $json.data }}' <> '' AND '{{ $json.error ? 1 : 0 }}' = '0' ON CONFLICT (indicator, source) DO UPDATE SET result = EXCLUDED.result, fetched_at = NOW();",
         "options": {},
         "operation": "executeQuery"
       },
@@ -402,7 +410,7 @@
         -432
       ],
       "parameters": {
-        "query": "INSERT INTO ti_cache (indicator, source, result, fetched_at) SELECT '{{ ((($('EnrichmentTrigger').first().json.observables || {}).urls) || [''])[0] }}', 'virustotal_url', '{{ JSON.stringify($json).replace(/'/g, \"''\") }}'::jsonb, NOW() WHERE '{{ ((($('EnrichmentTrigger').first().json.observables || {}).urls) || [''])[0] }}' <> '' AND '{{ $json.data }}' <> '' AND '{{ $json.error ? 1 : 0 }}' = '0' ON CONFLICT (indicator, source) DO UPDATE SET result = EXCLUDED.result, fetched_at = NOW();",
+        "query": "INSERT INTO ti_cache (indicator, source, result, fetched_at) SELECT '{{ $('SanitizeInput').first().json.url_q }}', 'virustotal_url', '{{ JSON.stringify($json).replace(/'/g, \"''\") }}'::jsonb, NOW() WHERE '{{ $('SanitizeInput').first().json.url_q }}' <> '' AND '{{ $json.data }}' <> '' AND '{{ $json.error ? 1 : 0 }}' = '0' ON CONFLICT (indicator, source) DO UPDATE SET result = EXCLUDED.result, fetched_at = NOW();",
         "options": {},
         "operation": "executeQuery"
       },
@@ -423,7 +431,7 @@
         -224
       ],
       "parameters": {
-        "jsCode": "// TIMerge \u2014 cache-aware TI (fresh ?? cached ?? UNKNOWN)\nconst ctx = $('EnrichmentTrigger').first().json;\nconst rows = {};\ntry { $('TICacheRead').all().forEach(i => { rows[i.json.source] = i.json; }); } catch (e) {}\nfunction pick(nodeName, source) {\n  try {\n    const j = $(nodeName).first().json;\n    if (j && j.data) return { v: j, from: 'live', at: new Date().toISOString() };\n  } catch (e) {}\n  try {\n    const r = rows[source];\n    if (r && r.result) return { v: r.result, from: 'cache', at: r.fetched_at };\n  } catch (e) {}\n  return { v: null, from: 'none', at: null };\n}\nfunction vtStats(body) { try { const s = body.data.attributes.last_analysis_stats; return { malicious: s.malicious || 0, suspicious: s.suspicious || 0, harmless: s.harmless || 0 }; } catch (e) { return 'UNKNOWN'; } }\nfunction abStats(body) { try { const d = body.data; return { confidence: d.abuseConfidenceScore, country: d.countryCode, reports: d.totalReports }; } catch (e) { return 'UNKNOWN'; } }\n\nfunction pickRaw(nodeName, source, probe) {\n  try { const j = $(nodeName).first().json; if (j && !j.error && (probe(j))) return { v: j, from: 'live' }; } catch (e) {}\n  try { const r = rows[source]; if (r && r.result && probe(r.result)) return { v: r.result, from: 'cache' }; } catch (e) {}\n  return { v: null, from: 'none' };\n}\nfunction urlhausInfo(b) { try { return { url_status: (b || {}).url_status || 'unknown', query_status: (b || {}).query_status || 'unknown' }; } catch (e) { return 'UNKNOWN'; } }\nfunction otxInfo(b) { try { return { pulses: (((b || {}).pulse_info || {}).count) || 0 }; } catch (e) { return 'UNKNOWN'; } }\nconst p_urlhaus = pickRaw('TI_URLhaus', 'urlhaus', function (j) { return j.query_status; });\nconst p_otx = pickRaw('TI_OTX', 'otx_ip', function (j) { return j.pulse_info || j.base_indicator; });\nconst p_ip = pick('TI_VirusTotal', 'virustotal_ip');\nconst p_ab = pick('TI_AbuseIPDB', 'abuseipdb');\nconst p_vf = pick('TI_VTFile', 'virustotal_file');\nconst p_u = pick('TI_URL', 'virustotal_url');\nconst vtInfo = vtStats(p_ip.v), abInfo = abStats(p_ab.v), vfInfo = vtStats(p_vf.v), urlInfo = vtStats(p_u.v);\nconst ti = [{ indicator: ctx.src_ip, type: 'ipv4', sources: { virustotal: vtInfo, abuseipdb: abInfo, otx: otxInfo(p_otx.v) }, cached: (p_ip.from === 'cache' || p_ab.from === 'cache'), checked_at: new Date().toISOString() }];\nconst _h = ((ctx.observables || {}).hash) || '';\nif (_h) ti.push({ indicator: _h, type: 'file_hash', sources: { virustotal: vfInfo }, cached: (p_vf.from === 'cache'), checked_at: p_vf.at || new Date().toISOString() });\nconst _urls = (((ctx.observables || {}).urls) || []);\nif (_urls.length) ti.push({ indicator: _urls[0], type: 'url', sources: { virustotal: urlInfo, urlhaus: urlhausInfo(p_urlhaus.v) }, cached: (p_u.from === 'cache'), checked_at: p_u.at || new Date().toISOString() });\nreturn [{ json: Object.assign({}, ctx, { threat_intel: ti }) }];"
+        "jsCode": "// TIMerge \u2014 cache-aware TI (fresh ?? cached ?? UNKNOWN)\nconst ctx = $('EnrichmentTrigger').first().json;\nconst rows = {};\ntry { $('TICacheRead').all().forEach(i => { rows[i.json.source] = i.json; }); } catch (e) {}\nfunction pick(nodeName, source) {\n  try {\n    const j = $(nodeName).first().json;\n    if (j && j.data) return { v: j, from: 'live', at: new Date().toISOString() };\n  } catch (e) {}\n  try {\n    const r = rows[source];\n    if (r && r.result) return { v: r.result, from: 'cache', at: r.fetched_at };\n  } catch (e) {}\n  return { v: null, from: 'none', at: null };\n}\nfunction vtStats(body) { try { const s = body.data.attributes.last_analysis_stats; return { malicious: s.malicious || 0, suspicious: s.suspicious || 0, harmless: s.harmless || 0 }; } catch (e) { return 'UNKNOWN'; } }\nfunction abStats(body) { try { const d = body.data; return { confidence: d.abuseConfidenceScore, country: d.countryCode, reports: d.totalReports }; } catch (e) { return 'UNKNOWN'; } }\n\nfunction pickRaw(nodeName, source, probe) {\n  try { const j = $(nodeName).first().json; if (j && !j.error && (probe(j))) return { v: j, from: 'live' }; } catch (e) {}\n  try { const r = rows[source]; if (r && r.result && probe(r.result)) return { v: r.result, from: 'cache' }; } catch (e) {}\n  return { v: null, from: 'none' };\n}\nfunction urlhausInfo(b) {\n  try {\n    const u = (b || {});\n    const tags = Array.isArray(u.tags) ? u.tags.join(' ') : '';\n    const threat = u.threat || 'unknown';\n    let status = u.url_status || 'unknown';\n    // Surface a confirmed threat verdict inside url_status so the existing\n    // downstream keyword guard (/malware|phish/ on url_status) counts true\n    // threats. Pure online/offline without a threat verdict keeps its plain\n    // status and scores 0 (partial credit deferred to workflow 01 owner).\n    const sig = (/malware|phish/i.test(String(threat)) ? String(threat).toLowerCase() : (/malware|phish/i.test(tags) ? (tags.match(/malware|phish\\w*/i) || [''])[0].toLowerCase() : ''));\n    if (u.query_status === 'ok' && sig && status !== 'unknown') status = status + ':' + sig;\n    return { url_status: status, query_status: u.query_status || 'unknown', threat: String(threat) };\n  } catch (e) { return 'UNKNOWN'; } }\nfunction otxInfo(b) { try { return { pulses: (((b || {}).pulse_info || {}).count) || 0 }; } catch (e) { return 'UNKNOWN'; } }\nconst p_urlhaus = pickRaw('TI_URLhaus', 'urlhaus', function (j) { return j.query_status; });\nconst p_otx = pickRaw('TI_OTX', 'otx_ip', function (j) { return j.pulse_info || j.base_indicator; });\nconst p_ip = pick('TI_VirusTotal', 'virustotal_ip');\nconst p_ab = pick('TI_AbuseIPDB', 'abuseipdb');\nconst p_vf = pick('TI_VTFile', 'virustotal_file');\nconst p_u = pick('TI_URL', 'virustotal_url');\nconst vtInfo = vtStats(p_ip.v), abInfo = abStats(p_ab.v), vfInfo = vtStats(p_vf.v), urlInfo = vtStats(p_u.v);\nconst ti = [{ indicator: ctx.src_ip, type: 'ipv4', sources: { virustotal: vtInfo, abuseipdb: abInfo, otx: otxInfo(p_otx.v) }, cached: (p_ip.from === 'cache' || p_ab.from === 'cache'), checked_at: new Date().toISOString() }];\nconst _h = ((ctx.observables || {}).hash) || '';\nif (_h) ti.push({ indicator: _h, type: 'file_hash', sources: { virustotal: vfInfo }, cached: (p_vf.from === 'cache'), checked_at: p_vf.at || new Date().toISOString() });\nconst _urls = (((ctx.observables || {}).urls) || []);\nif (_urls.length) ti.push({ indicator: _urls[0], type: 'url', sources: { virustotal: urlInfo, urlhaus: urlhausInfo(p_urlhaus.v) }, cached: (p_u.from === 'cache'), checked_at: p_u.at || new Date().toISOString() });\nreturn [{ json: Object.assign({}, ctx, { threat_intel: ti }) }];"
       },
       "typeVersion": 2
     },
@@ -436,7 +444,7 @@
         -224
       ],
       "parameters": {
-        "query": "SELECT DISTINCT ON (c.indicator) c.indicator, c.result, c.fetched_at FROM ti_cache c WHERE c.source = 'virustotal_ip' AND c.fetched_at > NOW() - INTERVAL '24 hours' AND c.indicator IN (SELECT DISTINCT src_ip FROM soc_events WHERE ts > (TIMESTAMPTZ '{{ $('EnrichmentTrigger').first().json.timestamp }}' - INTERVAL '15 minutes') AND ts <= TIMESTAMPTZ '{{ $('EnrichmentTrigger').first().json.timestamp }}' AND src_ip <> '' AND src_ip <> '{{ $('EnrichmentTrigger').first().json.src_ip }}' AND (host = '{{ $('EnrichmentTrigger').first().json.agent_name }}' OR username = '{{ $('EnrichmentTrigger').first().json.dst_user }}')) LIMIT 3;",
+        "query": "SELECT DISTINCT ON (c.indicator) c.indicator, c.result, c.fetched_at FROM ti_cache c WHERE c.source = 'virustotal_ip' AND c.fetched_at > NOW() - INTERVAL '24 hours' AND c.indicator IN (SELECT DISTINCT src_ip FROM soc_events WHERE ts > (TIMESTAMPTZ '{{ $('SanitizeInput').first().json.timestamp_q }}' - INTERVAL '15 minutes') AND ts <= TIMESTAMPTZ '{{ $('SanitizeInput').first().json.timestamp_q }}' AND src_ip <> '' AND src_ip <> '{{ $('SanitizeInput').first().json.src_ip_q }}' AND (host = '{{ $('SanitizeInput').first().json.agent_name_q }}' OR username = '{{ $('SanitizeInput').first().json.dst_user_q }}')) LIMIT 3;",
         "options": {},
         "operation": "executeQuery"
       },
@@ -544,7 +552,7 @@
         900
       ],
       "parameters": {
-        "jsCode": "// PrepOTX \u2014 sql-safe bundle for cache write\nconst j = $input.first().json || {};\nconst ip = String(($('EnrichmentTrigger').first().json.src_ip) || '');\nif (!ip || (j && j.error) || !(j.pulse_info || j.base_indicator)) return [{ json: { result_b64: '' } }];\nreturn [{ json: { indicator: ip, result_b64: Buffer.from(JSON.stringify(j)).toString('base64') } }];"
+        "jsCode": "// PrepOTX \u2014 sql-safe bundle for cache write\nconst j = $input.first().json || {};\nconst ip = String(($('EnrichmentTrigger').first().json.src_ip) || '');\nif (!ip || (j && j.error) || !(j.pulse_info || j.base_indicator)) return [{ json: { indicator_q: '', result_b64: '' } }];\nconst indicator_q = ip.replace(/'/g, \"''\");\nreturn [{ json: { indicator: ip, indicator_q: indicator_q, result_b64: Buffer.from(JSON.stringify(j)).toString('base64') } }];"
       },
       "typeVersion": 2
     },
@@ -557,7 +565,7 @@
         900
       ],
       "parameters": {
-        "query": "INSERT INTO ti_cache (indicator, source, result, fetched_at) SELECT '{{ $json.indicator }}', 'otx_ip', convert_from(decode('{{ $json.result_b64 }}', 'base64'), 'UTF8')::jsonb, NOW() WHERE '{{ $json.indicator }}' <> '' AND '{{ $json.result_b64 }}' <> '' ON CONFLICT (indicator, source) DO UPDATE SET result = EXCLUDED.result, fetched_at = NOW();",
+        "query": "INSERT INTO ti_cache (indicator, source, result, fetched_at) SELECT '{{ $json.indicator_q }}', 'otx_ip', convert_from(decode('{{ $json.result_b64 }}', 'base64'), 'UTF8')::jsonb, NOW() WHERE '{{ $json.indicator_q }}' <> '' AND '{{ $json.result_b64 }}' <> '' ON CONFLICT (indicator, source) DO UPDATE SET result = EXCLUDED.result, fetched_at = NOW();",
         "options": {},
         "operation": "executeQuery"
       },
@@ -662,7 +670,7 @@
         1100
       ],
       "parameters": {
-        "jsCode": "// PrepURLhaus \u2014 sql-safe bundle for cache write\nconst j = $input.first().json || {};\nconst url = String(((($('EnrichmentTrigger').first().json.observables || {}).urls) || [''])[0]);\nif (!url || (j && j.error) || !j.query_status || j.query_status === 'http_post_expected') return [{ json: { result_b64: '' } }];\nreturn [{ json: { indicator: url, result_b64: Buffer.from(JSON.stringify(j)).toString('base64') } }];"
+        "jsCode": "// PrepURLhaus \u2014 sql-safe bundle for cache write\nconst j = $input.first().json || {};\nconst url = String(((($('EnrichmentTrigger').first().json.observables || {}).urls) || [''])[0]);\nif (!url || (j && j.error) || !j.query_status || j.query_status === 'http_post_expected') return [{ json: { indicator_q: '', result_b64: '' } }];\nconst indicator_q = url.replace(/'/g, \"''\");\nreturn [{ json: { indicator: url, indicator_q: indicator_q, result_b64: Buffer.from(JSON.stringify(j)).toString('base64') } }];"
       },
       "typeVersion": 2
     },
@@ -675,7 +683,7 @@
         1100
       ],
       "parameters": {
-        "query": "INSERT INTO ti_cache (indicator, source, result, fetched_at) SELECT '{{ $json.indicator }}', 'urlhaus', convert_from(decode('{{ $json.result_b64 }}', 'base64'), 'UTF8')::jsonb, NOW() WHERE '{{ $json.indicator }}' <> '' AND '{{ $json.result_b64 }}' <> '' ON CONFLICT (indicator, source) DO UPDATE SET result = EXCLUDED.result, fetched_at = NOW();",
+        "query": "INSERT INTO ti_cache (indicator, source, result, fetched_at) SELECT '{{ $json.indicator_q }}', 'urlhaus', convert_from(decode('{{ $json.result_b64 }}', 'base64'), 'UTF8')::jsonb, NOW() WHERE '{{ $json.indicator_q }}' <> '' AND '{{ $json.result_b64 }}' <> '' ON CONFLICT (indicator, source) DO UPDATE SET result = EXCLUDED.result, fetched_at = NOW();",
         "options": {},
         "operation": "executeQuery"
       },
@@ -710,6 +718,19 @@
       ],
       "parameters": {
         "jsCode": "return [{ json: $('EnrichmentTrigger').first().json }];"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "1715b9e8-e7b9-44e4-b0c1-03e0dfcc7750",
+      "name": "SanitizeInput",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        480,
+        -128
+      ],
+      "parameters": {
+        "jsCode": "// SanitizeInput \u2014 producer-side SQL escaping (F3 fix, mirrors 01 qx pattern).\n// Derives *_q twins with single-quotes doubled (SQL escape for a literal\n// quote). null/undefined -> '' (matches n8n empty rendering). Downstream\n// Postgres nodes MUST use the twins, never the raw fields.\n// Originals pass through untouched (TI lookups keep full fidelity).\nconst t = $('EnrichmentTrigger').first().json;\nfunction qx(v) { return (v === null || v === undefined) ? '' : String(v).replace(/'/g, \"''\"); }\nconst obs = (t.observables && typeof t.observables === 'object') ? t.observables : {};\nconst urls = Array.isArray(obs.urls) ? obs.urls : [];\nconst out = Object.assign({}, t, {\n  src_ip_q: qx(t.src_ip),\n  agent_name_q: qx(t.agent_name),\n  dst_user_q: qx(t.dst_user),\n  timestamp_q: qx(t.timestamp),\n  hash_q: qx(obs.hash || ''),\n  url_q: qx(urls[0] || '')\n});\nreturn [{ json: out }];"
       },
       "typeVersion": 2
     }
@@ -1049,6 +1070,17 @@
       ]
     },
     "EnrichmentTrigger": {
+      "main": [
+        [
+          {
+            "node": "SanitizeInput",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SanitizeInput": {
       "main": [
         [
           {

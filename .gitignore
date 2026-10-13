@@ -25,3 +25,6 @@ Thumbs.db
 # temp
 tmp/
 *.tmp
+
+# internal working notes — not for publish (user runs: git rm --cached MEMORY.md)
+MEMORY.md
