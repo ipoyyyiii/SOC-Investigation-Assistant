@@ -235,3 +235,22 @@ Bugs found from real Discord message (INC-8487): (1) hardcoded "Wazuh rule" labe
 Fixes: source-aware label map (wazuh/splunk/email/keycloak/cloudtrail/suricata), playbooks per attack_type (cloud-identity/identity/web/process/persistence/win-logon), skip non-IP TI in OBSERVED + EVIDENCE, EVIDENCE block in fallback, observables.access_key added.
 Proof: INC-20261010-6994/7800/1506 — "AWS CloudTrail event cloudtrail-stoplogging" + cloud playbook + no hostname TI + evidence block + facts-only. Risks: CreateAccessKey denied -> 100 HIGH; StopLogging -> 75 HIGH.
 Pitfall logged: mustache-anchor ordering (fix3 anchors on text fix1 removes) + unclosed paren in injected IIFE (node --check caught both).
+
+## Notification UX rework — LIVE (2026-10-12)
+- Rewrote FormatNotification (English only): verdict-first, human labels, numbers with context, one template for success+fallback, smart truncate (link+NOTE never cut). AI observed/next-steps replaced by deterministic evidence/playbooks; AI summary kept; rule MITRE always shown.
+- Proof: INC-20261012-2431 (SSH brute, 1593 chars) + INC-20261012-6543 (phish, 1676 chars) — both ≤1900, Discord delivered, link+NOTE intact, MITRE Rules T1110 / T1566+T1566.001. AI rate-limited → fallback path verified LIVE.
+- Also fixed: GmailNotify text `=={{`→`={{`; pluralization; `mal`→`malicious`. Repo 01 synced (2 hunks), secret scan clean. Backup: /tmp/opencode/notify-rework/backup-01-20261012-222156.json. Offline samples: /tmp/opencode/notify-rework/samples.md.
+- Left as-is: Gmail subject `=={{`; AI-success live path (offline only); Discord-client visual check (human). Pre-existing live-vs-repo divergence found (Correlate 15min vs 24h, StoreEvent NOW(), cloudtrail rejected live) — separate task, DLQ catching the fallout.
+
+## Notify v2 — Discord card + HTML email (2026-10-13)
+- Discord: plain card, no emoji, verdict-first, numbered actions, empty fields omitted, ≤1900. Gmail: HTML enterprise-style (severity header, summary, metrics, details/timeline/TI/related tables, MITRE, recommendations, Open Full Report button, footer) + subject `[LEVEL] verdict — INC-...` (subject `=={{` bug killed).
+- Proof: INC-20261013-5596 (SSH), INC-20261013-5030 (phish, AI conf 0.85 live), INC-20261013-8877/3681. All success, failed_jobs empty. Live bug fixed: `file_hash` label leak → tiType().
+- Human pending: Discord render, Gmail inbox. Live-vs-repo Correlate divergence confirmed again (companion events needed for replays).
+
+## Notify v4 — email full values (2026-10-13)
+- Email now full/copyable (hash 64-char, full AI reasons, caps 15) — Discord stays tight. Proof INC-20261013-8043 (phish 71, Gmail 13.2KB accepted, Discord 1739c delivered). 5 nits fixed (Rule prefix, metric label, `—`, engine phrasing, hottest-indicator headline).
+
+## Notify v3 — Discord EMBED + 11 content fixes (2026-10-13)
+- Embed: DiscordEmbed HTTP node (hardcoded webhook URL + ?wait=true; $env blocked instance-wide, scratch-verified). Proof: execution 9996 all-success, Discord returned message id (delivered), Gmail accepted. Incidents: INC-20261013-3018 (SSH, 75 HIGH), INC-20261013-3076 (phish, 61 MEDIUM, was 38), INC-20261013-5811 (phish fresh-IP, 71 MEDIUM).
+- Content: TI-max risk (probes 65/85 exact), word-boundary AI summary + standalone confidence, 4-step playbooks, auth-only login line, MITRE ID+name, cell ellipsis, Unknown verdicts, explicit metrics, short hashes, Flag column, report button intact. Offline verify3.py 319/319 pass. failed_jobs: no new rows from this change.
+- Left: Discord/Gmail client-side render (human); cloudtrail-source live-vs-repo divergence untouched; StoreDuplicate dedup self-refresh noted.
