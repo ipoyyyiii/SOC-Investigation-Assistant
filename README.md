@@ -8,41 +8,9 @@
 
 ## Architecture
 
-```
-                    ┌────────────────────────────────────────────────────────┐
-                    │                     DATA SOURCES                       │
-                    │  Wazuh agents (Linux+Windows) · Suricata eve.json      │
-                    │  Splunk events (BOTS) · Email gateway · Keycloak       │
-                    │  AWS CloudTrail                                        │
-                    └───────────────┬────────────────────────────────────────┘
-                                    │ webhook /soc-alert (HMAC-ish key + timestamp window)
-                                    ▼
-┌───────────────────────────────────────────────────────────────────────────────┐
-│  01_SOC_Alert_Intake (n8n)                                                    │
-│  Normalize (multi-source router) → Dedup (idempotency key) → Correlate (±15m  │
-│  anchored to alert ts, +24h retro-link) → Call 04 Enrichment → ResponseGate   │
-│  → Call 05 AI → FormatNotification → Discord + Gmail + CaseStore + Report     │
-└──────────┬──────────────────────────────┬─────────────────────────────────────┘
-           ▼                              ▼
-┌─────────────────────────┐   ┌──────────────────────────────────────────────┐
-│ 04_SOC_Enrichment       │   │ 05_SOC_AIAnalysis                            │
-│ TI cache-first: VT      │   │ Summary + observed evidence + MITRE + next   │
-│ (ip/file/url) ·         │   │ steps. Falls back to FACTS-ONLY if the model │
-│ AbuseIPDB · URLhaus ·   │   │ is unavailable — never invents evidence.     │
-│ OTX                     │   │ Deterministic risk is NEVER computed by AI.  │
-└─────────────────────────┘   └──────────────────────────────────────────────┘
-           │
-           ▼
-┌───────────────────────────────────────────────────────────────────────────────┐
-│ Postgres (soc): soc_events · incidents · ti_cache · incident_iocs ·           │
-│ analyst_decisions · analyst_tokens · ip_asn_cache · scanner_asn · failed_jobs │
-└───────────────────────────────────────────────────────────────────────────────┘
-           │                              │
-           ▼                              ▼
-  02_SOC_Decision (TP/FP/      03_SOC_Report (HTML evidence page) ·
-  ESCALATE, per-analyst        06_SOC_DLQ (failed-job capture) ·
-  token + audit)               07_SOC_AutoClose (scanner-ASN FP autoclose)
-```
+![Architecture](docs/assets/architecture.png)
+
+Diagram generated with [Archify](https://github.com/tt-a1i/archify) (MIT).
 
 **Core design decision:** risk + gates are *deterministic formulas* you can read; the LLM only narrates and recommends. If the LLM is down, notifications degrade to facts, not fabrications.
 
