@@ -50,6 +50,27 @@
         }
       },
       "typeVersion": 2.5
+    },
+    {
+      "id": "autoc-3",
+      "name": "AutoCloseAWS",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        440,
+        240
+      ],
+      "parameters": {
+        "query": "WITH ti_norm AS (\n  SELECT incident_id,\n    CASE WHEN jsonb_typeof(ti_summary) = 'array' THEN ti_summary\n         WHEN jsonb_typeof(ti_summary) = 'object' THEN jsonb_build_array(ti_summary)\n         ELSE '[]'::jsonb END AS arr\n  FROM incidents WHERE status = 'OPEN'\n),\nti_hot AS (\n  SELECT incident_id FROM ti_norm, jsonb_array_elements(arr) t\n  WHERE CASE WHEN (t->'sources'->'virustotal'->>'malicious') ~ '^[0-9]+$'\n             THEN (t->'sources'->'virustotal'->>'malicious')::int ELSE 0 END > 0\n     OR CASE WHEN (t->'sources'->'otx'->>'pulses') ~ '^[0-9]+$'\n             THEN (t->'sources'->'otx'->>'pulses')::int ELSE 0 END > 0\n     OR COALESCE(t->'sources'->'urlhaus'->>'threat', '') <> ''\n),\ncand AS (\n  SELECT i.incident_id,\n    CASE WHEN i.src_ip LIKE '%.amazonaws.com' THEN i.src_ip\n         ELSE (SELECT e.raw->'observables'->>'src_host' FROM soc_events e\n               WHERE e.incident_id = i.incident_id\n                 AND (e.raw->'observables'->>'src_host') LIKE '%.amazonaws.com'\n               ORDER BY e.id LIMIT 1) END AS endpoint,\n    (SELECT COUNT(*) FROM soc_events e WHERE e.incident_id = i.incident_id) AS nevents\n  FROM incidents i\n  WHERE i.status = 'OPEN' AND i.risk_score < 40\n    AND (COALESCE(i.src_ip, '') = '' OR i.src_ip LIKE '%.amazonaws.com')\n    AND (i.src_ip LIKE '%.amazonaws.com'\n      OR EXISTS (SELECT 1 FROM soc_events e WHERE e.incident_id = i.incident_id\n                 AND (e.raw->'observables'->>'src_host') LIKE '%.amazonaws.com'))\n    AND NOT EXISTS (SELECT 1 FROM soc_events e WHERE e.incident_id = i.incident_id\n                    AND COALESCE(e.src_ip, '') <> '' AND e.src_ip NOT LIKE '%.amazonaws.com')\n    AND NOT EXISTS (SELECT 1 FROM ti_hot h WHERE h.incident_id = i.incident_id)\n    AND EXISTS (SELECT 1 FROM soc_events e WHERE e.incident_id = i.incident_id)\n    AND NOT EXISTS (SELECT 1 FROM soc_events e WHERE e.incident_id = i.incident_id\n                    AND NOT ((e.raw->'observables'->>'event_name') IN ('AssumeRole', 'LookupEvents')\n                      OR (e.raw->'observables'->>'event_name') LIKE 'Describe%'\n                      OR (e.raw->'observables'->>'event_name') LIKE 'List%'\n                      OR (e.raw->'observables'->>'event_name') LIKE 'Get%'))\n    AND NOT EXISTS (SELECT 1 FROM soc_events e WHERE e.incident_id = i.incident_id\n                    AND COALESCE(e.raw->'observables'->>'error_code', '') <> '')\n),\nclosed AS (\n  UPDATE incidents SET status = 'CLOSED_FP',\n    analyst_note = ('auto-close (AWS service endpoint ' || c.endpoint || ', ' || c.nevents || ' event(s), TI cold, read-only)'),\n    updated_at = NOW()\n  FROM cand c WHERE incidents.incident_id = c.incident_id\n  RETURNING incidents.incident_id, c.endpoint, c.nevents\n)\nINSERT INTO analyst_decisions (incident_id, verdict, analyst, note)\nSELECT incident_id, 'FP', 'aws-service-autoclose',\n  ('AWS service endpoint ' || endpoint || ' - deterministic auto-close, TI cold, read-only, no error, risk<40')\nFROM closed\nRETURNING incident_id;",
+        "options": {},
+        "operation": "executeQuery"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "IUtC5ZIhrfQ9qUPf",
+          "name": "Postgres account"
+        }
+      },
+      "typeVersion": 2.5
     }
   ],
   "connections": {
@@ -58,6 +79,11 @@
         [
           {
             "node": "AutoClose",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "AutoCloseAWS",
             "type": "main",
             "index": 0
           }
